@@ -15,6 +15,14 @@ on:
         required: false
         default: 0
         type: number
+      target:
+        description: "Compilation target (manager or agent)"
+        required: true
+        type: choice
+        default: 'manager'
+        options:
+          - manager
+          - agent
       docker_image_tag:
         description: |
           Tag name of the Docker image to be uploaded.
@@ -25,6 +33,10 @@ on:
 
 env:
   REGISTRY: ghcr.io
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   prepare:
@@ -67,6 +79,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: prepare
     permissions:
+      id-token: write
       contents: read
       packages: read
     steps:
@@ -76,7 +89,7 @@ jobs:
           ref: ${{ github.ref_name }}
 
       - name: Download dependencies
-        run: make -C src deps -j${{ needs.prepare.outputs.jobs }}
+        run: make -C src deps TARGET=${{ github.event.inputs.target }} -j${{ needs.prepare.outputs.jobs }}
 
       - name: Log in to the Container registry
         uses: docker/login-action@v3
@@ -95,7 +108,7 @@ jobs:
       - name: Build Coverity artifact
         uses: ./.github/actions/coverity/build
         with:
-          command: make -C src TARGET=manager COVERITY=YES -j${{ needs.prepare.outputs.jobs }}
+          command: make -C src TARGET=${{ github.event.inputs.target }} COVERITY=YES -j${{ needs.prepare.outputs.jobs }}
           docker_image_tag: ${{ github.event.inputs.docker_image_tag }}
 
       - name: List files
@@ -105,8 +118,11 @@ jobs:
         run: tar czf wazuh.tgz cov-int
 
       - name: Upload Coverity artifact
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/upload_s3_artifact
         with:
+          aws_region: ${{ secrets.CI_AWS_REGION }}
+          bucket: ${{ secrets.CI_INTERNAL_S3_BUCKET }}
+          aws_role: ${{ secrets.CI_OIDC_ROLE_ARN }}
           name: wazuh.tgz
           path: wazuh.tgz
 
@@ -120,8 +136,11 @@ jobs:
           ref: ${{ github.ref_name }}
 
       - name: Download Coverity artifact
-        uses: actions/download-artifact@v4
+        uses: ./.github/actions/download_s3_artifact
         with:
+          aws_region: ${{ secrets.CI_AWS_REGION }}
+          bucket: ${{ secrets.CI_INTERNAL_S3_BUCKET }}
+          aws_role: ${{ secrets.CI_OIDC_ROLE_ARN }}
           name: wazuh.tgz
 
       - name: Upload to Coverity Scan

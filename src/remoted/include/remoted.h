@@ -77,8 +77,12 @@ void HandleRemote(int uid) __attribute__((noreturn));
 /* Handle Secure connections */
 void HandleSecure() __attribute__((noreturn));
 
-/* Forward active response events */
-void* AR_Forward(void* arg) __attribute__((noreturn));
+/* Resolve every internal option the C++ module config owns, so 'remoted -t' refuses the same
+ * values the daemon would. RemotedConfig() only reaches the options resolved in config.c. */
+void w_remoted_validate_module_config(void);
+
+/* Poll connected legacy (< v5.0.0) agents and deliver their pending remote_upgrade tasks */
+void* legacy_upgrade_task_delivery(void* arg);
 
 /* Initialize the manager */
 void manager_init();
@@ -112,6 +116,22 @@ void req_sender(int peer, char* buffer, ssize_t length);
 // Save request data (ack or response). Return 0 on success or -1 on error.
 int req_save(const char* counter, const char* buffer, size_t length);
 
+/**
+ * @brief Send a request to an agent and synchronously wait for its ack/response.
+ *
+ * Reuses req_dispatch()'s req_table/condvar machinery for an in-process caller with no local peer
+ * socket (e.g. the legacy task delivery poller); the response still arrives via the normal
+ * control-message path and req_save()/req_update(), same as any other requester.
+ *
+ * @param agent_id Target agent ID.
+ * @param payload Request payload, formatted as "<target> <rest>" (no agent ID prefix).
+ * @param length Length of payload.
+ * @param response On success, set to a newly allocated response buffer (caller must os_free it).
+ * @param timeout_sec How long to wait for the response, in seconds.
+ * @return 0 on success, -1 on send failure or timeout.
+ */
+int req_send_and_wait(const char* agent_id, const char* payload, size_t length, char** response, int timeout_sec);
+
 /* Send message to agent */
 /* Must not call key_lock() before this */
 int send_msg(const char* agent_id, const char* msg, ssize_t msg_length);
@@ -130,6 +150,9 @@ void key_unlock(void);
 // Init message queue
 void rem_msginit(size_t size);
 
+// Free the message queue (unit tests only)
+void rem_msgdestroy(void);
+
 // Push message into queue
 int rem_msgpush(const char* buffer, unsigned long size, struct sockaddr_storage* addr, int sock);
 
@@ -144,6 +167,15 @@ size_t rem_get_tsize();
 
 // Free message
 void rem_msgfree(message_t* message);
+
+// Set the maximum total bytes for the input message queue (0 = unlimited)
+void rem_set_input_queue_max_bytes(size_t max_bytes);
+
+// Get current bytes used in the input queue
+size_t rem_get_input_bytes_used();
+
+// Get configured byte limit for the input queue (0 = unlimited)
+size_t rem_get_input_max_bytes();
 
 // Read config
 cJSON* getRemoteConfig(void);
@@ -225,13 +257,14 @@ extern int worker_pool;
 extern int merge_shared;
 extern size_t ctrl_msg_queue_size;
 extern int keyupdate_interval;
-extern int router_forwarding_disabled;
-extern int state_interval;
 extern int shared_reload_interval;
 extern size_t global_counter;
 extern size_t batch_events_capacity;
 extern size_t batch_events_per_agent_capacity;
+extern size_t queue_max_bytes;
+extern size_t batch_events_max_bytes;
 extern int enrich_cache_expire_time;
+extern int legacy_task_polling_interval;
 
 extern module_limits_t manager_module_limits;
 extern bool manager_module_limits_enabled;

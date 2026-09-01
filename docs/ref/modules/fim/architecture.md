@@ -702,13 +702,16 @@ Run Delta Sync ──► asp_sync_module(MODE_DELTA)
                                             └─► Mismatch? ──► Trigger Recovery
                                                                  │
                                                                  ▼
-                                                         Load Entire Table into Memory
+                                                         Load Entire Table
                                                                      │
                                                                      ▼
-                                                         Persist All Entries (MODE_FULL)
+                                                         Clear Manager Index (DataClean)
                                                                      │
                                                                      ▼
-                                                         Full Sync with Manager
+                                                         Persist All Entries (MODE_DELTA)
+                                                                     │
+                                                                     ▼
+                                                         Delta Sync with Manager
     ```
 
 ---
@@ -850,7 +853,7 @@ All coordination commands are thread-safe:
 
 ## Schema Validation Integration
 
-FIM integrates with the [Schema Validator](../utils/schema-validator/README.md) module to ensure all events conform to the expected Wazuh indexer schema before transmission.
+FIM integrates with the [Schema Validator](../utils/schema-validator/index.html) module to ensure all events conform to the expected Wazuh indexer schema before transmission.
 
 ### Purpose
 
@@ -914,13 +917,13 @@ if (schema_validator_is_initialized())
 
 if (validation_passed)
 {
-    // Persist for recovery
-    asp_persist_diff_in_memory(sync_handle, id, operation, index, data, version);
+    // Persist for recovery (into the sync protocol's persistent queue, same as any other delta item)
+    asp_persist_diff(sync_handle, id, operation, index, data, version);
 }
 ```
 
 **Key characteristics:**
-- Validation before in-memory persistence
+- Validation before persistence
 - Invalid items are skipped (not persisted)
 - Prevents synchronizing invalid recovery data
 
@@ -1239,6 +1242,6 @@ if (!schema_validator_validate(index, message, &errorMessage))
 
 ### References
 
-- [Schema Validator Overview](../utils/schema-validator/README.md)
+- [Schema Validator Overview](../utils/schema-validator/index.html)
 - [Schema Validator API Reference](../utils/schema-validator/api-reference.md)
 - [Schema Validator Integration Guide](../utils/schema-validator/integration-guide.md)

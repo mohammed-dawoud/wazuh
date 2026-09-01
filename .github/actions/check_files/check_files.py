@@ -272,6 +272,31 @@ def get_current_items(scan_path='/var/wazuh-manager', size_check=False, ignore_n
 """
 
 
+def path_match(filename, pattern):
+    """Match a filename against a glob pattern segment by segment.
+
+    A wildcard is not allowed to span path separators: both the filename
+    and the pattern are split into their components and each pair is
+    matched independently. This keeps a '*' from crossing a directory
+    boundary regardless of how many characters it expands to. Both '/'
+    (Unix) and '\\' (Windows) separators are supported.
+
+    Args:
+        filename (str): The current file path being checked.
+        pattern (str): The expected path, possibly containing glob wildcards.
+
+    Returns:
+        bool: True if the filename matches the pattern.
+    """
+    file_parts = filename.replace('\\', '/').split('/')
+    pattern_parts = pattern.replace('\\', '/').split('/')
+
+    if len(file_parts) != len(pattern_parts):
+        return False
+
+    return all(fnmatch.fnmatch(f, p) for f, p in zip(file_parts, pattern_parts))
+
+
 def csv_to_dict(file_path, key_column):
     data_dict = {}
 
@@ -314,9 +339,17 @@ def file_diff(expected_item, current_items, size_check):
             difference_bytes = abs(
                 float(current_items['size_bytes']) - expected_size_bytes)
             if (expected_size_bytes and (difference_bytes / expected_size_bytes) > expected_error):
-                differences['size_bytes'] = current_items['size_bytes']
+                differences['size_bytes'] = {
+                    'expected': expected_item['size_bytes'],
+                    'found': current_items['size_bytes'],
+                    'allowed_error': expected_error,
+                    'deviation': round(difference_bytes / expected_size_bytes, 4)
+                }
         elif expected_item[head_type] != current_items[head_type]:
-            differences[head_type] = current_items[head_type]
+            differences[head_type] = {
+                'expected': expected_item[head_type],
+                'found': current_items[head_type]
+            }
 
     return differences
 
@@ -364,8 +397,17 @@ def printReport(expected_items, not_listed, not_fully_match, current_items, matc
             report_lines.append("### Files Differences\n")
             report_lines.append(
                 f"{qtty_not_fully_matched} files didn't match the expected values:\n")
-            report_lines.extend(
-                f"- '{filename}' : {details}\n" for filename, details in not_fully_match.items())
+            for filename, details in not_fully_match.items():
+                report_lines.append(f"- '{filename}':\n")
+                for field, values in details.items():
+                    if 'allowed_error' in values:
+                        report_lines.append(
+                            f"  - {field}: expected {values['expected']} "
+                            f"(±{float(values['allowed_error']) * 100:g}%), found {values['found']} "
+                            f"(deviation {values['deviation'] * 100:g}%)\n")
+                    else:
+                        report_lines.append(
+                            f"  - {field}: expected '{values['expected']}', found '{values['found']}'\n")
 
         # Expected files not found
         missing_files = [key for key,
@@ -387,12 +429,12 @@ def printReport(expected_items, not_listed, not_fully_match, current_items, matc
     # Combine all lines into a single report string
     final_report = ''.join(report_lines)
 
-    # Output to file or console
+    # Always print to the console so the CI log shows the discrepancies directly,
+    # and also write the file when a report path was requested
+    print(final_report)
     if report_path:
         with open(report_path, 'w') as file:
             file.write(final_report)
-    else:
-        print(final_report)
 
 
 if __name__ == "__main__":
@@ -492,9 +534,10 @@ if __name__ == "__main__":
             # 2. Check for matches with glob patterns if no exact match found
             if not matched:
                 for pattern, expected_item_fields in glob_patterns.items():
-                    # Check if the pattern matches the current file name
-                    # Note: Only the current directory is considered (no subdirectories)
-                    if fnmatch.fnmatch(current_file_name, pattern) and '/' not in current_file_name[len(pattern)-1:]:
+                    # Check if the pattern matches the current file name.
+                    # Matching is done per path segment so a wildcard never
+                    # spans a directory separator.
+                    if path_match(current_file_name, pattern):
                         matched = True
                         matches[pattern] = True
 

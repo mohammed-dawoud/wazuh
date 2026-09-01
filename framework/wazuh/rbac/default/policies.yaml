@@ -17,10 +17,10 @@ default_policies:
           - agent:read
           - agent:delete
           - agent:modify_group
-          - agent:reconnect
           - agent:restart
           - agent:reload
           - agent:upgrade
+          - agent:scan_vulnerability
         resources:
           - agent:id:*
           - agent:group:*
@@ -158,12 +158,21 @@ default_policies:
           - node:id:*
         effect: allow
 
-  task_status:
-    description: Provide permissions to check the status of tasks
+  security_read:
+    description: Provide read-only access to all security related functionalities.
     policies:
-      task:
+      resourceless:
         actions:
-          - task:status
+          - security:read_config
         resources:
           - '*:*:*'
+        effect: allow
+      security:
+        actions:
+          - security:read
+        resources:
+          - role:id:*
+          - policy:id:*
+          - user:id:*
+          - rule:id:*
         effect: allow

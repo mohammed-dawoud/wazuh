@@ -87,7 +87,7 @@ Utility functions `methodToStr()` and `strToMethod()` convert between enum and s
 | Feature | Implementation |
 |---------|----------------|
 | **Unix Domain Socket** | `set_address_family(AF_UNIX)`, binds to file path |
-| **Thread pool** | `CPPHTTPLIB_THREAD_POOL_COUNT` clamped to `[8, 16]` based on `hardware_concurrency()` |
+| **Thread pool** | `CPPHTTPLIB_THREAD_POOL_COUNT` clamped to `[2, 16]` based on `cpp_get_nproc()` |
 | **Payload limit** | `set_payload_max_length()` — returns `413 Payload Too Large` when exceeded |
 | **Exception safety** | `set_exception_handler()` catches all route handler exceptions → `500 Internal Server Error` |
 | **Logging** | `set_logger()` logs every request/response at TRACE level (truncated to 1024 chars) |
@@ -154,10 +154,10 @@ Eight API sub-modules register handlers on the API server, plus one direct route
 
 | Key | Env Override | Default | Description |
 |-----|-------------|---------|-------------|
-| `analysisd.server_api_socket` | `WAZUH_SERVER_API_SOCKET` | `$WAZUH_HOME/queue/sockets/analysis` | UDS path for API server |
+| `analysisd.server_api_socket` | `WAZUH_SERVER_API_SOCKET` | `$WAZUH_HOME/queue/sockets/engine-api-http.sock` | UDS path for API server |
 | `analysisd.server_api_timeout` | `WAZUH_SERVER_API_TIMEOUT` | `5000` | Server timeout (ms) |
 | `analysisd.server_api_payload_max_bytes` | `WAZUH_SERVER_API_PAYLOAD_MAX_BYTES` | `0` (unlimited) | Max payload size for API server |
-| `analysisd.server_enriched_events_socket` | `WAZUH_SERVER_ENRICHED_EVENTS_SOCKET` | `$WAZUH_HOME/queue/sockets/queue-http.sock` | UDS path for event server |
+| `analysisd.server_enriched_events_socket` | `WAZUH_SERVER_ENRICHED_EVENTS_SOCKET` | `$WAZUH_HOME/queue/sockets/engine-ingest-http.sock` | UDS path for event server |
 
 ## Integration in `main.cpp`
 

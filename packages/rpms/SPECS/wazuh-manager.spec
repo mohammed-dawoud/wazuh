@@ -84,8 +84,8 @@ mkdir -p ${RPM_BUILD_ROOT}%{_localstatedir}
 
 # Copy the installed files into RPM_BUILD_ROOT directory
 cp -pr %{_localstatedir}/* ${RPM_BUILD_ROOT}%{_localstatedir}/
-sed -i "s:WAZUH_HOME_TMP:%{_localstatedir}:g" src/init/templates/wazuh-rh.init
-install -m 0755 src/init/templates/wazuh-rh.init ${RPM_BUILD_ROOT}%{_initrddir}/wazuh-manager
+sed -i "s:WAZUH_HOME_TMP:%{_localstatedir}:g" src/init/templates/wazuh-manager-rh.init
+install -m 0755 src/init/templates/wazuh-manager-rh.init ${RPM_BUILD_ROOT}%{_initrddir}/wazuh-manager
 mkdir -p ${RPM_BUILD_ROOT}/usr/lib/systemd/system/
 sed -i "s:WAZUH_HOME_TMP:%{_localstatedir}:g" src/init/templates/wazuh-manager.service
 install -m 0644 src/init/templates/wazuh-manager.service ${RPM_BUILD_ROOT}/usr/lib/systemd/system/
@@ -102,8 +102,8 @@ mkdir -p ${RPM_BUILD_ROOT}%{_localstatedir}/packages_files/manager_installation_
 mkdir -p ${RPM_BUILD_ROOT}%{_localstatedir}/packages_files/manager_installation_scripts/etc/templates/config/sles
 
 # Add SUSE initscript
-sed -i "s:WAZUH_HOME_TMP:%{_localstatedir}:g" src/init/templates/wazuh-suse.init
-cp -rp src/init/templates/wazuh-suse.init ${RPM_BUILD_ROOT}%{_localstatedir}/packages_files/manager_installation_scripts/src/init/
+sed -i "s:WAZUH_HOME_TMP:%{_localstatedir}:g" src/init/templates/wazuh-manager-suse.init
+cp -rp src/init/templates/wazuh-manager-suse.init ${RPM_BUILD_ROOT}%{_localstatedir}/packages_files/manager_installation_scripts/src/init/
 
 # Copy scap templates
 cp -rp  etc/templates/config/generic/* ${RPM_BUILD_ROOT}%{_localstatedir}/packages_files/manager_installation_scripts/etc/templates/config/generic
@@ -120,10 +120,24 @@ exit 0
 %pre
 
 # ============================================================
-# HARD BLOCK: Prevent upgrade from 4.X to 5.X
+# HARD BLOCK: Prevent upgrade from versions prior to 5.x
 # ============================================================
+print_unsupported_manager_upgrade() {
+  DETECTED_VERSION=$(echo "${1:-unknown}" | sed 's/^v//')
+  cat <<EOF >&2
+==============================================================
+ERROR: Upgrade from Wazuh manager versions prior to 5.x is not supported.
+
+Detected installed version: ${DETECTED_VERSION}
+
+A clean installation of Wazuh manager 5.x is required.
+Refer to the 5.x migration guide for more information.
+==============================================================
+EOF
+}
+
 if [ "$1" -eq 2 ]; then
-  # Check if this is an upgrade from 4.X
+  # Check if this is an upgrade from versions prior to 5.x.
   if [ -f %{_sysconfdir}/ossec-init.conf ]; then
     . %{_sysconfdir}/ossec-init.conf
     OLD_VERSION="${VERSION}"
@@ -134,13 +148,7 @@ if [ "$1" -eq 2 ]; then
   if [ -n "${OLD_VERSION}" ]; then
     OLD_MAJOR=$(echo "${OLD_VERSION}" | sed 's/^v//' | cut -d. -f1)
     if [ -n "${OLD_MAJOR}" ] && [ "${OLD_MAJOR}" -le 4 ] 2>/dev/null; then
-      cat <<EOF
-==============================================================
-ERROR: Direct upgrade from Wazuh Manager 4.X to 5.X is not supported.
-
-Detected installed version: ${OLD_VERSION}
-==============================================================
-EOF
+      print_unsupported_manager_upgrade "${OLD_VERSION}"
       exit 1
     fi
   fi
@@ -174,36 +182,13 @@ if [ "$1" -eq 2 ]; then
   # Determine if upgrade should be blocked
   if [ -z "$MAJOR" ]; then
     ERROR_TYPE="no_version"
-    ERROR_TITLE="Cannot detect current version"
-    ERROR_MESSAGE="Unable to detect the currently installed Wazuh version."
   elif [ "$MAJOR" -lt 5 ]; then
     ERROR_TYPE="old_version"
-    ERROR_TITLE="Clean installation required"
-    ERROR_MESSAGE="Current version: $OLD_VERSION
-Target version:  5.0.0
-
-Direct upgrade from 4.x to 5.0.0 is NOT supported for Wazuh Manager
-due to breaking changes in database schema and architecture."
   fi
 
   # If any error was detected, show message and block
   if [ -n "$ERROR_TYPE" ]; then
-    cat <<EOF >&2
-═════════════════════════════════════════════════════════════════
-  UPGRADE BLOCKED: $ERROR_TITLE
-═════════════════════════════════════════════════════════════════
-
-$ERROR_MESSAGE
-
-Required action:
-  1. Backup your configuration and data
-  2. Perform a clean installation of Wazuh 5.0.0
-  3. Restore configuration as needed
-
-For migration guide, visit:
-  https://documentation.wazuh.com/current/migration-guide/
-═════════════════════════════════════════════════════════════════
-EOF
+    print_unsupported_manager_upgrade "${OLD_VERSION}"
     exit 1
   fi
 fi
@@ -338,7 +323,11 @@ if [ "$1" -eq 1 ]; then
   . %{_localstatedir}/packages_files/manager_installation_scripts/src/init/dist-detect.sh
 
   # Generating wazuh-manager.conf file
-  %{_localstatedir}/packages_files/manager_installation_scripts/src/init/gen_wazuh.sh conf manager ${DIST_NAME} ${DIST_VER}.${DIST_SUBVER} %{_localstatedir} > %{_localstatedir}/etc/wazuh-manager.conf
+  if ! %{_localstatedir}/packages_files/manager_installation_scripts/src/init/gen_wazuh.sh conf manager ${DIST_NAME} ${DIST_VER}.${DIST_SUBVER} %{_localstatedir} > %{_localstatedir}/etc/wazuh-manager.conf; then
+    rm -f %{_localstatedir}/etc/wazuh-manager.conf
+    echo "ERROR: could not generate %{_localstatedir}/etc/wazuh-manager.conf." >&2
+    exit 1
+  fi
   chown root:wazuh-manager %{_localstatedir}/etc/wazuh-manager.conf
   chmod 0660 %{_localstatedir}/etc/wazuh-manager.conf
 
@@ -355,12 +344,44 @@ if [[ -d /run/systemd/system ]]; then
   rm -f %{_initrddir}/wazuh-manager
 fi
 
-# Generation auto-signed certificate if not exists
-if [ ! -f "%{_localstatedir}/etc/sslmanager.key" ] && [ ! -f "%{_localstatedir}/etc/sslmanager.cert" ]; then
-  %{_localstatedir}/bin/wazuh-manager-authd -C 365 -B 2048 -S "/C=US/ST=California/CN=Wazuh/" -K %{_localstatedir}/etc/sslmanager.key -X %{_localstatedir}/etc/sslmanager.cert 2>/dev/null
-  chmod 640 %{_localstatedir}/etc/sslmanager.key
-  chmod 640 %{_localstatedir}/etc/sslmanager.cert
+# Unified certificate directory: root-owned and sticky. The server daemons self-generate
+# their certificates here and read them after dropping privileges to wazuh-manager; the
+# sticky bit keeps them from replacing the root-owned indexer trust material in the dir.
+mkdir -p %{_localstatedir}/etc/certs
+
+# Generate auto-signed certificate for the HTTPS agent server (remoted_module) if not
+# exists. Skipped when the admin supplied their own certificate/key paths through the
+# WAZUH_REMOTE_HTTPS_CERTIFICATE / WAZUH_REMOTE_HTTPS_KEY installation variables. This is
+# the manager's ONLY self-signed cert/key pair: authd no longer generates its own (its
+# <ssl_manager_cert>/<ssl_manager_key> point here too), so both listeners present the same
+# manager identity -- required now that /enroll's mTLS mode treats this certificate as the
+# enrollment credential.
+if [ -z "${WAZUH_REMOTE_HTTPS_CERTIFICATE}" ] && [ -z "${WAZUH_REMOTE_HTTPS_KEY}" ]; then
+  if [ ! -f "%{_localstatedir}/etc/certs/remoted-key.pem" ] && [ ! -f "%{_localstatedir}/etc/certs/remoted.pem" ]; then
+    %{_localstatedir}/bin/wazuh-manager-remoted -C 365 -B 2048 -S "/C=US/ST=California/CN=Wazuh/" -K %{_localstatedir}/etc/certs/remoted-key.pem -X %{_localstatedir}/etc/certs/remoted.pem 2>/dev/null
+  fi
 fi
+
+# The server certificates each daemon self-generates are owned by wazuh-manager (the daemon
+# must write them). Re-applied unconditionally so upgrades that left them root-owned get corrected.
+for CERT_FILE in remoted.pem remoted-key.pem apid.pem apid-key.pem; do
+  if [ -f "%{_localstatedir}/etc/certs/${CERT_FILE}" ]; then
+    chown wazuh-manager:wazuh-manager %{_localstatedir}/etc/certs/${CERT_FILE} > /dev/null 2>&1 || true
+    chmod 640 %{_localstatedir}/etc/certs/${CERT_FILE} > /dev/null 2>&1 || true
+  fi
+done
+
+# The indexer trust material is provisioned externally and only read by the manager, so it is
+# owned root and group wazuh-manager (read-only for the service).
+for CERT_FILE in root-ca.pem indexer-connector.pem indexer-connector-key.pem; do
+  if [ -f "%{_localstatedir}/etc/certs/${CERT_FILE}" ]; then
+    chown root:wazuh-manager %{_localstatedir}/etc/certs/${CERT_FILE} > /dev/null 2>&1 || true
+    chmod 640 %{_localstatedir}/etc/certs/${CERT_FILE} > /dev/null 2>&1 || true
+  fi
+done
+
+chown root:wazuh-manager %{_localstatedir}/etc/certs > /dev/null 2>&1 || true
+chmod 1770 %{_localstatedir}/etc/certs > /dev/null 2>&1 || true
 
 rm -f %{_localstatedir}/etc/shared/merged.mg  >/dev/null 2>&1
 
@@ -432,12 +453,13 @@ if [ $1 = 0 ];then
     find %{_localstatedir}/etc/ -type f ! -name "*shared*" ! -name "*rpmsave" -exec mv {} {}.save \;
   fi
 
-  # Backup registration service certificates (sslmanager.cert,sslmanager.key)
-  if [ -f %{_localstatedir}/etc/sslmanager.cert ]; then
-      mv %{_localstatedir}/etc/sslmanager.cert %{_localstatedir}/etc/sslmanager.cert.save
+  # Backup HTTPS agent server certificates (remoted.pem, remoted-key.pem) -- also authd's manager
+  # identity now (see ssl_manager_cert/ssl_manager_key in auth.template)
+  if [ -f %{_localstatedir}/etc/certs/remoted.pem ]; then
+      mv %{_localstatedir}/etc/certs/remoted.pem %{_localstatedir}/etc/certs/remoted.pem.save
   fi
-  if [ -f %{_localstatedir}/etc/sslmanager.key ]; then
-      mv %{_localstatedir}/etc/sslmanager.key %{_localstatedir}/etc/sslmanager.key.save
+  if [ -f %{_localstatedir}/etc/certs/remoted-key.pem ]; then
+      mv %{_localstatedir}/etc/certs/remoted-key.pem %{_localstatedir}/etc/certs/remoted-key.pem.save
   fi
 
   # Remove lingering folders and files
@@ -478,6 +500,18 @@ if [ -d "${UPGRADE_PRESERVE_DIR}" ]; then
   }
   rm -rf "${UPGRADE_PRESERVE_DIR}"
 fi
+
+# The engine (wazuh-manager-analysisd) now drops privileges to wazuh-manager:
+# runtime data created by root in previous versions must be reassigned. This
+# must run after the upgrade-preserve restore above, which keeps the old
+# ownership (cp -a), and before the service restart below.
+chown -R wazuh-manager:wazuh-manager %{_localstatedir}/data/ruleset > /dev/null 2>&1 || true
+chown -R wazuh-manager:wazuh-manager %{_localstatedir}/data/kvdb-ioc > /dev/null 2>&1 || true
+for year_dir in %{_localstatedir}/logs/[0-9][0-9][0-9][0-9]; do
+  if [ -d "$year_dir" ]; then
+    chown -R wazuh-manager:wazuh-manager "$year_dir" > /dev/null 2>&1 || true
+  fi
+done
 
 if [ -f %{_sysconfdir}/systemd/system/wazuh-manager.service ]; then
   rm -rf %{_sysconfdir}/systemd/system/wazuh-manager.service
@@ -522,7 +556,6 @@ rm -fr %{buildroot}
 %dir %attr(770, root, wazuh-manager) %{_localstatedir}/api/configuration
 %attr(660, root, wazuh-manager) %config(noreplace) %{_localstatedir}/api/configuration/api.yaml
 %dir %attr(770, root, wazuh-manager) %{_localstatedir}/api/configuration/security
-%dir %attr(770, root, wazuh-manager) %{_localstatedir}/api/configuration/ssl
 %dir %attr(750, root, wazuh-manager) %{_localstatedir}/api/scripts
 %attr(640, root, wazuh-manager) %{_localstatedir}/api/scripts/*.py
 %dir %attr(750, root, wazuh-manager) %{_localstatedir}/backup
@@ -539,14 +572,16 @@ rm -fr %{buildroot}
 %attr(750, root, wazuh-manager) %{_localstatedir}/bin/verify-agent-conf
 %attr(750, root, wazuh-manager) %{_localstatedir}/bin/wazuh-manager-apid
 %attr(750, root, wazuh-manager) %{_localstatedir}/bin/wazuh-manager-clusterd
+%attr(4750, root, wazuh-manager) %{_localstatedir}/bin/wazuh-manager-service-control
 %attr(750, root, root) %{_localstatedir}/bin/wazuh-manager-db
 %attr(750, root, root) %{_localstatedir}/bin/wazuh-manager-modulesd
 %attr(750, root, wazuh-manager) %{_localstatedir}/bin/rbac_control
 %attr(750, root, root) %{_localstatedir}/bin/wazuh-manager-keystore
 %dir %attr(770, root, wazuh-manager) %{_localstatedir}/etc
 %attr(660, root, wazuh-manager) %ghost %{_localstatedir}/etc/wazuh-manager.conf
-%attr(640, root, root) %ghost %{_localstatedir}/etc/sslmanager.cert
-%attr(640, root, root) %ghost %{_localstatedir}/etc/sslmanager.key
+%dir %attr(1770, root, wazuh-manager) %{_localstatedir}/etc/certs
+%attr(640, wazuh-manager, wazuh-manager) %ghost %{_localstatedir}/etc/certs/remoted.pem
+%attr(640, wazuh-manager, wazuh-manager) %ghost %{_localstatedir}/etc/certs/remoted-key.pem
 %attr(660, wazuh-manager, wazuh-manager) %{_localstatedir}/etc/client.keys
 %attr(640, root, wazuh-manager) %{_localstatedir}/etc/wazuh-manager-internal-options.conf
 %attr(640, root, wazuh-manager) %{_localstatedir}/etc/localtime
@@ -557,6 +592,10 @@ rm -fr %{buildroot}
 %dir %attr(750, wazuh-manager, wazuh-manager) %{_localstatedir}/etc/outputs
 %dir %attr(750, wazuh-manager, wazuh-manager) %{_localstatedir}/etc/outputs/default
 %attr(640, wazuh-manager, wazuh-manager) %{_localstatedir}/etc/outputs/default/*.yml
+%dir %attr(750, root, wazuh-manager) %{_localstatedir}/etc/indexer-plugins
+%attr(640, root, wazuh-manager) %{_localstatedir}/etc/indexer-plugins/metrics-agents.json
+%attr(640, root, wazuh-manager) %{_localstatedir}/etc/indexer-plugins/metrics-comms.json
+%attr(640, root, wazuh-manager) %{_localstatedir}/etc/indexer-plugins/metrics-normalization.json
 %dir %attr(750, root, wazuh-manager) %{_localstatedir}/framework
 %dir %attr(750, root, wazuh-manager) %{_localstatedir}/framework/python
 %{_localstatedir}/framework/python/*
@@ -568,8 +607,6 @@ rm -fr %{buildroot}
 %dir %attr(750, root, wazuh-manager) %{_localstatedir}/framework/wazuh/core/cluster
 %attr(640, root, wazuh-manager) %{_localstatedir}/framework/wazuh/core/cluster/*.py
 %attr(640, root, wazuh-manager) %{_localstatedir}/framework/wazuh/core/cluster/*.json
-%dir %attr(750, root, wazuh-manager) %{_localstatedir}/framework/wazuh/core/cluster/hap_helper
-%attr(640, root, wazuh-manager) %{_localstatedir}/framework/wazuh/core/cluster/hap_helper/*.py
 %dir %attr(750, root, wazuh-manager) %{_localstatedir}/framework/wazuh/core/cluster/dapi
 %attr(640, root, wazuh-manager) %{_localstatedir}/framework/wazuh/core/cluster/dapi/*.py
 %dir %attr(750, root, wazuh-manager) %{_localstatedir}/lib
@@ -581,10 +618,11 @@ rm -fr %{buildroot}
 %attr(750, root, wazuh-manager) %{_localstatedir}/lib/libgcc_s.so.1
 %attr(750, root, wazuh-manager) %{_localstatedir}/lib/libcontent_manager.so
 %attr(750, root, wazuh-manager) %{_localstatedir}/lib/libindexer_connector.so
-%attr(750, root, wazuh-manager) %{_localstatedir}/lib/libinventory_sync.so
+%attr(750, root, wazuh-manager) %{_localstatedir}/lib/libinventory_sync_server.so
+%attr(750, root, wazuh-manager) %{_localstatedir}/lib/libkeystore_server.so
 %attr(750, root, wazuh-manager) %{_localstatedir}/lib/libvulnerability_scanner.so
 %attr(750, root, wazuh-manager) %{_localstatedir}/lib/librocksdb.so.8
-%attr(750, root, wazuh-manager) %{_localstatedir}/lib/librouter.so
+%attr(750, root, wazuh-manager) %{_localstatedir}/lib/libremoted_module.so
 %{_localstatedir}/lib/libpython3.12.so.1.0
 %dir %attr(770, wazuh-manager, wazuh-manager) %{_localstatedir}/logs
 %attr(660, wazuh-manager, wazuh-manager) %ghost %{_localstatedir}/logs/api.log
@@ -616,12 +654,12 @@ rm -fr %{buildroot}
 %dir %attr(770, wazuh-manager, wazuh-manager) %{_localstatedir}/queue/sockets
 %dir %attr(770, wazuh-manager, wazuh-manager) %{_localstatedir}/queue/vd
 %dir %attr(770, wazuh-manager, wazuh-manager) %{_localstatedir}/queue/indexer
-%dir %attr(770, wazuh-manager, wazuh-manager) %{_localstatedir}/queue/router
+%dir %attr(750, wazuh-manager, wazuh-manager) %{_localstatedir}/queue/authd
 %dir %attr(750, wazuh-manager, wazuh-manager) %{_localstatedir}/queue/keystore
 %dir %attr(750, wazuh-manager, wazuh-manager) %{_localstatedir}/data
 %dir %attr(750, wazuh-manager, wazuh-manager) %{_localstatedir}/data/kvdb-ioc
 %dir %attr(770, root, wazuh-manager) %{_localstatedir}/data/mmdb
-%dir %attr(750, root, wazuh-manager) %{_localstatedir}/data/ruleset
+%dir %attr(750, wazuh-manager, wazuh-manager) %{_localstatedir}/data/ruleset
 %dir %attr(770, wazuh-manager, wazuh-manager) %{_localstatedir}/data/store
 %dir %attr(770, wazuh-manager, wazuh-manager) %{_localstatedir}/data/store/enrichment
 %dir %attr(770, wazuh-manager, wazuh-manager) %{_localstatedir}/data/store/enrichment/geo
@@ -655,8 +693,8 @@ rm -fr %{buildroot}
 %files -n wazuh-manager-debuginfo -f debugfiles.list
 
 %changelog
-* Wed Jun 24 2026 support <info@wazuh.com> - 5.0.0
-- More info: https://documentation.wazuh.com/current/release-notes/release-5-0-0.html
+* Wed Sep 30 2026 support <info@wazuh.com> - 5.1.0
+- More info: https://documentation.wazuh.com/current/release-notes/release-5-1-0.html
 * Thu May 14 2026 support <info@wazuh.com> - 4.14.6
 - More info: https://documentation.wazuh.com/current/release-notes/release-4-14-6.html
 * Thu Apr 23 2026 support <info@wazuh.com> - 4.14.5

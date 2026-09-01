@@ -461,11 +461,13 @@ def test_syscollector_scanning(test_configuration, test_metadata, set_wazuh_conf
 
     for callback in check_callbacks:
         # Run check
-        log_monitor.start(callback=callbacks.generate_callback(callback), timeout=10)
+        # 60s margin: some collectors (e.g. Windows hotfixes via WMI) can take much longer than a
+        # few seconds to finish depending on host load, independent of this test's own configuration.
+        log_monitor.start(callback=callbacks.generate_callback(callback), timeout=60)
         assert log_monitor.callback_result
 
     # Check general scan has finished
-    log_monitor.start(callback=callbacks.generate_callback(patterns.CB_SCAN_FINISHED), timeout=30)
+    log_monitor.start(callback=callbacks.generate_callback(patterns.CB_SCAN_FINISHED), timeout=60)
     assert log_monitor.callback_result
 
 
@@ -548,8 +550,11 @@ def test_syscollector_collectors_disabled(test_configuration, test_metadata, set
     log_monitor.start(callback=callbacks.generate_callback(patterns.CB_DISABLED_COLLECTORS_DETECTED), timeout=30)
     assert log_monitor.callback_result, "Disabled collectors with data should be detected"
 
-    # Check DataClean notification is started
-    log_monitor.start(callback=callbacks.generate_callback(patterns.CB_DATACLEAN_NOTIFICATION_STARTED), timeout=60)
+    # Check DataClean notification is started. The notification is emitted when the module
+    # start reaches handleNotifyDataClean(), which on the disconnected test agent can take
+    # well over a minute (the agent retries enrollment/agentd queries with the manager
+    # unreachable), so give it the same margin as the other slow-path monitors in this file.
+    log_monitor.start(callback=callbacks.generate_callback(patterns.CB_DATACLEAN_NOTIFICATION_STARTED), timeout=180)
     assert log_monitor.callback_result, "DataClean notification should be started for disabled collectors with data"
 
     if all_collectors_disabled:

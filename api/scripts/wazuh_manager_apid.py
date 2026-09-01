@@ -53,7 +53,7 @@ def configure_ssl(params):
             logger.info(
                 f"Generated certificate file in WAZUH_PATH/{to_relative_path(api_conf['https']['cert'])}")
 
-        # Check and assign ownership to wazuh user for manager.key and manager.crt files
+        # Check and assign ownership to wazuh user for the API certificate and key files
         assign_wazuh_ownership(api_conf['https']['key'])
         assign_wazuh_ownership(api_conf['https']['cert'])
 
@@ -139,7 +139,9 @@ def start(params: dict):
     app = AsyncApp(
         __name__,
         specification_dir=os.path.join(api_path[0], 'spec'),
-        swagger_ui_options=SwaggerUIOptions(swagger_ui=False),
+        # serve_spec=False avoids exposing the API specification and version at
+        # /openapi.json and /openapi.yaml, which connexion serves unauthenticated by default
+        swagger_ui_options=SwaggerUIOptions(swagger_ui=False, serve_spec=False),
         pythonic_params=True,
         lifespan=lifespan_handler,
         uri_parser_class=APIUriParser
@@ -159,6 +161,7 @@ def start(params: dict):
         app.add_middleware(CheckRateLimitsMiddleware, MiddlewarePosition.BEFORE_SECURITY)
     app.add_middleware(CheckExpectHeaderMiddleware)
     app.add_middleware(CheckBlockedIP, MiddlewarePosition.BEFORE_SECURITY)
+    app.add_middleware(CheckAuthContextSizeMiddleware, MiddlewarePosition.BEFORE_SECURITY)
     app.add_middleware(WazuhAccessLoggerMiddleware, MiddlewarePosition.BEFORE_EXCEPTION)
     app.add_middleware(SecureHeadersMiddleware, MiddlewarePosition.BEFORE_EXCEPTION)
     if api_conf['max_upload_size']:
@@ -309,6 +312,7 @@ if __name__ == '__main__':
     from api.configuration import api_conf, generate_private_key, generate_self_signed_certificate, security_conf
     from api.constants import API_LOG_PATH
     from api.middlewares import (
+        CheckAuthContextSizeMiddleware,
         CheckBlockedIP,
         CheckRateLimitsMiddleware,
         SecureHeadersMiddleware,

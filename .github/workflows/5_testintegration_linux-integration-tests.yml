@@ -40,7 +40,7 @@ on:
       timeout_minutes:
         required: false
         type: number
-        default: 120
+        default: 150
   workflow_dispatch:
     inputs:
       base_branch:
@@ -75,7 +75,7 @@ on:
         required: false
         default: ''
       setup_aws_credentials:
-        description: 'Configure AWS credentials from IT_AWS_KEY_ID / IT_AWS_SECRET_ACCESS_KEY secrets'
+        description: 'Configure AWS credentials via OIDC for AWS integration tests'
         required: false
         default: 'false'
 
@@ -86,8 +86,11 @@ env:
 jobs:
   run-test:
     if: inputs.module_name != 'none'
-    timeout-minutes: ${{ inputs.timeout_minutes || 120 }}
+    timeout-minutes: ${{ inputs.timeout_minutes || 150 }}
     name: Run integration tests
+    permissions:
+      id-token: write  # Required for OIDC token generation (aws-actions/configure-aws-credentials)
+      contents: read
     env:
       BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
       BRANCH_BASE: ${{ github.base_ref || inputs.base_branch }}
@@ -106,17 +109,15 @@ jobs:
           architecture: x64
 
       - name: Download package artifact
-        uses: dawidd6/action-download-artifact@v6
+        uses: ./.github/actions/download_package
         with:
-          workflow: ${{ env.BUILD_WORKFLOW }}
-          run_id: ${{ inputs.build_run_id }}
-          workflow_conclusion: success
-          name_is_regexp: true
-          name: ${{ env.AGENT_PACKAGE_REGEXP }}
+          build_run_id: ${{ inputs.build_run_id }}
+          producer_workflow: 5_builderpackage_agent-linux
+          name_regexp: ${{ env.AGENT_PACKAGE_REGEXP }}
           path: ${{ env.PACKAGES_PATH }}
-          if_no_artifact_found: fail
-          check_artifacts: true
-          search_artifacts: true
+          bucket: ${{ secrets.CI_INTERNAL_S3_BUCKET }}
+          aws_role: ${{ secrets.CI_OIDC_ROLE_ARN }}
+          aws_region: ${{ secrets.CI_AWS_REGION }}
 
       - name: Install and configure wazuh agent
         run: |
@@ -126,7 +127,11 @@ jobs:
             exit 1
           fi
 
-          sudo WAZUH_MANAGER="127.0.0.1" dpkg -i "${PACKAGE_PATH}" || sudo apt-get install -f -y
+          # Trailing '/' on purpose (#38624): it opts the installed agent out of the
+          # default /wazuh-manager/ endpoint prefix, which RemotedSimulator does not
+          # serve — without it every request 404s and the agentd startup gate keeps
+          # the modules from starting in any suite that relies on this config.
+          sudo WAZUH_MANAGER_ENDPOINT="127.0.0.1/" dpkg -i "${PACKAGE_PATH}" || sudo apt-get install -f -y
 
           sudo awk '
             /<rootcheck>/ { in_block=1; print; next }
@@ -162,20 +167,54 @@ jobs:
               QA_BRANCH="main"
           fi
           git clone -b ${QA_BRANCH} --single-branch https://github.com/wazuh/qa-integration-framework.git
-          sudo pip install qa-integration-framework/
+          # The framework is installed for the system python3 that `sudo python`
+          # uses to run the tests, so target that interpreter explicitly.
+          sudo python3 -m pip install --break-system-packages qa-integration-framework/
           sudo rm -rf qa-integration-framework/
 
-      - name: Configure AWS credentials
+      - name: Configure AWS credentials via OIDC
         if: inputs.setup_aws_credentials == true || inputs.setup_aws_credentials == 'true'
-        env:
-          AWS_KEY_ID: ${{ secrets.IT_AWS_KEY_ID }}
-          AWS_SECRET: ${{ secrets.IT_AWS_SECRET_ACCESS_KEY }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.IT_AWS_OIDC_ROLE_ARN }}
+          aws-region: us-east-1
+          role-duration-seconds: 7200
+
+      - name: Write AWS named profiles for integration tests
+        if: inputs.setup_aws_credentials == true || inputs.setup_aws_credentials == 'true'
         run: |
-          sudo aws configure set aws_access_key_id "${AWS_KEY_ID}" --profile default
-          sudo aws configure set aws_secret_access_key "${AWS_SECRET}" --profile default
-          sudo aws configure set default.region us-east-1 --profile default
-          sudo aws configure set aws_access_key_id "${AWS_KEY_ID}" --profile inspector_tests
-          sudo aws configure set aws_secret_access_key "${AWS_SECRET}" --profile inspector_tests
+          # Write the 'default' profile (us-east-1) from the OIDC temporary credentials.
+          # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, and AWS_SESSION_TOKEN are injected as
+          # environment variables by the preceding 'Configure AWS credentials via OIDC' step.
+          sudo aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID" --profile default
+          sudo aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" --profile default
+          sudo aws configure set aws_session_token "$AWS_SESSION_TOKEN" --profile default
+          sudo aws configure set region us-east-1 --profile default
+
+          # Assume the Inspector role via role chaining to build the 'inspector_tests' profile.
+          # Inspector tests run against the wazuh-dev account and require us-east-2.
+          STS_ERROR_FILE=$(mktemp)
+          STS_OUTPUT=$(aws sts assume-role \
+            --role-arn "${{ secrets.IT_AWS_INSPECTOR_ROLE_ARN }}" \
+            --role-session-name "github-actions-inspector-tests" \
+            --query "Credentials.[AccessKeyId,SecretAccessKey,SessionToken]" \
+            --output text 2>"$STS_ERROR_FILE") || {
+              echo "::error::Failed to assume Inspector role: $(cat $STS_ERROR_FILE)"
+              rm -f "$STS_ERROR_FILE"
+              exit 1
+            }
+          rm -f "$STS_ERROR_FILE"
+
+          read -r INSPECTOR_KEY INSPECTOR_SECRET INSPECTOR_TOKEN <<< "$STS_OUTPUT"
+
+          if [ -z "$INSPECTOR_KEY" ] || [ -z "$INSPECTOR_SECRET" ] || [ -z "$INSPECTOR_TOKEN" ]; then
+            echo "::error::Inspector role credentials are empty"
+            exit 1
+          fi
+
+          sudo aws configure set aws_access_key_id "$INSPECTOR_KEY" --profile inspector_tests
+          sudo aws configure set aws_secret_access_key "$INSPECTOR_SECRET" --profile inspector_tests
+          sudo aws configure set aws_session_token "$INSPECTOR_TOKEN" --profile inspector_tests
           sudo aws configure set region us-east-2 --profile inspector_tests
 
       - name: Run pre-install steps
@@ -183,10 +222,18 @@ jobs:
         run: ${{ inputs.pre_install }}
 
       - name: Run ${{ inputs.module_name }} integration tests (${{ inputs.shard_name }})
+        env:
+          AWS_VPC_ID: ${{ secrets.IT_AWS_VPC_ID }}
+          AWS_BUCKET_NAME: ${{ secrets.IT_AWS_BUCKET_NAME }}
+          AWS_IT_CLEANUP_MANIFEST: ${{ github.workspace }}/aws_it_uploaded_keys.txt
         run: |
           cd tests/integration
           set +e
           sudo GITHUB_SHA="${{ github.sha }}" GITHUB_REF_NAME="${BRANCH_NAME}" \
+            GITHUB_RUN_ID="${GITHUB_RUN_ID}" \
+            AWS_VPC_ID="${AWS_VPC_ID}" \
+            AWS_BUCKET_NAME="${AWS_BUCKET_NAME}" \
+            AWS_IT_CLEANUP_MANIFEST="${AWS_IT_CLEANUP_MANIFEST}" \
             python -m pytest ${{ inputs.pytest_extra_args }} ${{ inputs.pytest_tier_args }} ${{ inputs.pytest_target }} \
             --html=results.html --self-contained-html
           EXIT_CODE=$?
@@ -197,6 +244,35 @@ jobs:
           fi
           exit $EXIT_CODE
 
+      - name: Clean up uploaded S3 test artifacts
+        # always() so this runs even when the job is CANCELLED - the dominant source of orphan
+        # objects, since pytest teardown does not run on a hard cancel. The manifest lists every key
+        # the tests uploaded (recorded at upload time); we delete each one, skipping permanent seeds.
+        if: always() && (inputs.setup_aws_credentials == true || inputs.setup_aws_credentials == 'true')
+        env:
+          AWS_BUCKET_NAME: ${{ secrets.IT_AWS_BUCKET_NAME }}
+          AWS_IT_CLEANUP_MANIFEST: ${{ github.workspace }}/aws_it_uploaded_keys.txt
+        run: |
+          MANIFEST="${AWS_IT_CLEANUP_MANIFEST}"
+          if [ ! -f "$MANIFEST" ]; then
+            echo "No cleanup manifest found; nothing to delete."
+            exit 0
+          fi
+          # Permanent DevOps seeds that must never be deleted (belt-and-suspenders; the manifest never
+          # records them, but guard here in case a future test key ever matches one).
+          SEED_CLOUDTRAIL="AWSLogs/819751203818/CloudTrail/us-east-1/2022/11/20/819751203818_CloudTrail_us-east-1_20221120T0000Z_372406355707169122.json"
+          SEED_ELB="AWSLogs/819751203818/elasticloadbalancing/us-east-1/2022/11/20/819751203818_elasticloadbalancing_us-east-1_net.qatests_20221120T0000Z_1412953514070675864_29.145.39.119.log"
+          sudo sort -u "$MANIFEST" | while IFS= read -r key; do
+            [ -z "$key" ] && continue
+            if [ "$key" = "$SEED_CLOUDTRAIL" ] || [ "$key" = "$SEED_ELB" ]; then
+              echo "Skipping permanent seed: $key"
+              continue
+            fi
+            echo "Deleting s3://${AWS_BUCKET_NAME}/${key}"
+            sudo aws s3 rm "s3://${AWS_BUCKET_NAME}/${key}" --profile default || true
+          done
+          sudo rm -f "$MANIFEST" || true
+
       - name: Dump wazuh-agent logs on failure
         if: failure()
         run: |
@@ -205,8 +281,10 @@ jobs:
 
       - name: Upload failed test results
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/upload_s3_artifact
         with:
           name: ${{ inputs.module_name }}-lin-${{ inputs.shard_name }}-test-results-${{ github.run_id }}
           path: ./tests/integration/results.html
-          retention-days: 7
+          bucket: ${{ secrets.CI_INTERNAL_S3_BUCKET }}
+          aws_role: ${{ secrets.CI_OIDC_ROLE_ARN }}
+          aws_region: ${{ secrets.CI_AWS_REGION }}

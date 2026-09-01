@@ -23,7 +23,7 @@
 #define WM_BUFFER_MAX   1024                        // Max. static buffer size.
 #define WM_BUFFER_MIN   1024                        // Starting JSON buffer length.
 #define WM_MAX_ATTEMPTS 3                           // Max. number of attempts.
-#define WM_MAX_WAIT     500                           // Max. wait between attempts in milliseconds.
+#define WM_MAX_WAIT     500                         // Max. wait between attempts in microseconds.
 #define WM_IO_WRITE     0
 #define WM_IO_READ      1
 #define WM_ERROR_TIMEOUT 1                          // Error code for timeout.
@@ -69,17 +69,16 @@ typedef enum crypto_type {
 #include "wm_sca.h"
 #include "wm_control.h"
 #include "wm_gcp.h"
-#include "wm_task_general.h"
 #include "wm_agent_upgrade.h"
 #include "wm_task_manager.h"
 #include "wm_agent_info.h"
 #include "wm_github.h"
 #include "wm_office365.h"
-#include "wm_router.h"
 #include "wm_content_manager.h"
 #include "wm_vulnerability_scanner.h"
 #include "wm_ms_graph.h"
-#include "wm_inventory_sync.h"
+#include "wm_inventory_sync_server.h"
+#include "wm_keystore_server.h"
 
 extern wmodule *wmodules;       // Loaded modules.
 extern int wm_task_nice;        // Nice value for tasks.
@@ -196,6 +195,16 @@ void * wmcom_main(void * arg);
 void wmcom_send(char * message, size_t length);
 size_t wmcom_dispatch(char * command, size_t length, char ** output);
 size_t wmcom_getconfig(const char * section, char ** output);
+
+/**
+ * @brief Build this daemon's entries for the agent's /config document.
+ *
+ * One entry per hosted wodle, plus one for modulesd's internal options.
+ *
+ * @param output Receives the allocated "ok <json>" reply.
+ * @return Length of *output.
+ */
+size_t wmcom_getallconfig(char ** output);
 int wmcom_sync(char * buffer, size_t length);
 
 /**

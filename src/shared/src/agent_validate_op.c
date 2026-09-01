@@ -10,9 +10,9 @@
 
 #include "cJSON.h"
 #include "agent_validate_op.h"
-#include "md5_op.h"
 #include "os_err.h"
 #include "wdb.h"
+#include <openssl/rand.h>
 #include <time.h>
 
 #define str_startwith(x, y) strncmp(x, y, strlen(y))
@@ -33,6 +33,28 @@
 /* Global variables */
 fpos_t fp_pos;
 
+/* The agent key is the agent's HS256 secret (remoted's wazuh-agent+jwt bearer profile): exactly
+ * AGENT_KEY_BYTES bytes from the CSPRNG, stored in client.keys as AGENT_KEY_HEX_CHARS lowercase hex
+ * chars. remoted decodes those hex chars back into the 32 raw key bytes; nothing else is accepted. */
+#define AGENT_KEY_BYTES 32
+#define AGENT_KEY_HEX_CHARS (2 * AGENT_KEY_BYTES)
+
+int OS_IsValidAgentKey(const char *key)
+{
+    size_t i;
+
+    if (!key || strlen(key) != AGENT_KEY_HEX_CHARS) {
+        return (0);
+    }
+    for (i = 0; i < AGENT_KEY_HEX_CHARS; i++) {
+        const char c = key[i];
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+            return (0);
+        }
+    }
+    return (1);
+}
+
 int OS_AddNewAgent(keystore *keys,
                    const char *id,
                    const char *name,
@@ -40,10 +62,9 @@ int OS_AddNewAgent(keystore *keys,
                    const char *key,
                    unsigned int max_agents)
 {
-    os_md5 md1;
-    os_md5 md2;
-    char str1[STR_SIZE + 1];
-    char str2[STR_SIZE + 1];
+    static const char HEX[] = "0123456789abcdef";
+    unsigned char rnd[AGENT_KEY_BYTES];
+    size_t i;
     char _id[12] = { '\0' };
     char buffer[KEYSIZE] = { '\0' };
 
@@ -64,11 +85,18 @@ int OS_AddNewAgent(keystore *keys,
     }
 
     if (!key) {
-        snprintf(str1, STR_SIZE, "%d%s%d%s", (int)time(0), name, os_random(), getuname());
-        snprintf(str2, STR_SIZE, "%s%s%ld", ip, id, (long int)os_random());
-        OS_MD5_Str(str1, -1, md1);
-        OS_MD5_Str(str2, -1, md2);
-        snprintf(buffer, KEYSIZE, "%s%s", md1, md2);
+        /* 32 bytes straight from the CSPRNG. Never fall back to a weaker generator: a key the agent
+         * will authenticate with for years is worth refusing the enrollment over. */
+        if (RAND_bytes(rnd, sizeof(rnd)) != 1) {
+            merror("Unable to generate a key for agent '%s': the CSPRNG (RAND_bytes) failed.", name);
+            return OS_INVALID;
+        }
+        for (i = 0; i < sizeof(rnd); i++) {
+            buffer[2 * i] = HEX[rnd[i] >> 4];
+            buffer[2 * i + 1] = HEX[rnd[i] & 0x0f];
+        }
+        buffer[AGENT_KEY_HEX_CHARS] = '\0';
+        OPENSSL_cleanse(rnd, sizeof(rnd));
         key = buffer;
     }
 
@@ -161,61 +189,14 @@ char *getNameById(const char *id)
     return (NULL);
 }
 
-/* ID Search (is valid ID) */
-int IDExist(const char *id, int discard_removed)
-{
-    FILE *fp;
-    char line_read[FILE_SIZE + 1];
-    line_read[FILE_SIZE] = '\0';
-
-    /* ID must not be null */
-    if (!id) {
-        return (0);
-    }
-
-    fp = wfopen(KEYS_FILE, "r");
-
-    if (!fp) {
-        return (0);
-    }
-
-    fseek(fp, 0, SEEK_SET);
-    fgetpos(fp, &fp_pos);
-
-    while (fgets(line_read, FILE_SIZE - 1, fp) != NULL) {
-        char *name;
-
-        if (line_read[0] == '#') {
-            fgetpos(fp, &fp_pos);
-            continue;
-        }
-
-        name = strchr(line_read, ' ');
-        if (name) {
-            *name = '\0';
-            name++;
-
-            if (strcmp(line_read, id) == 0) {
-                if (discard_removed && (*name == '!' || *name == '#')) {
-                    fgetpos(fp, &fp_pos);
-                    continue;
-                }
-
-                fclose(fp);
-                return (1); /*(fp_pos);*/
-            }
-        }
-
-        fgetpos(fp, &fp_pos);
-    }
-
-    fclose(fp);
-    return (0);
-}
-
 /* Validate agent name */
 int OS_IsValidName(const char *u_name)
 {
+    /* Name must not be null */
+    if (!u_name) {
+        return (0);
+    }
+
     size_t i, uname_length = strlen(u_name);
 
     /* We must have something in the name */
@@ -358,24 +339,6 @@ char *IPExist(const char *u_ip)
     return NULL;
 }
 
-void OS_AddAgentTimestamp(const char *id, const char *name, const char *ip, time_t now)
-{
-    File file;
-    char timestamp[40];
-    struct tm tm_result = { .tm_sec = 0 };
-
-    if (TempFile(&file, TIMESTAMP_FILE, 1) < 0) {
-        merror("Couldn't open timestamp file.");
-        return;
-    }
-
-    strftime(timestamp, 40, "%Y-%m-%d %H:%M:%S", localtime_r(&now, &tm_result));
-    fprintf(file.fp, "%s %s %s %s\n", id, name, ip, timestamp);
-    fclose(file.fp);
-    OS_MoveFile(file.name, TIMESTAMP_FILE);
-    free(file.name);
-}
-
 void OS_RemoveAgentTimestamp(const char *id)
 {
     FILE *fp;
@@ -412,16 +375,4 @@ void OS_RemoveAgentTimestamp(const char *id)
     fclose(file.fp);
     OS_MoveFile(file.name, TIMESTAMP_FILE);
     free(file.name);
-}
-
-void FormatID(char *id) {
-    int number;
-    char *end;
-
-    if (id && *id) {
-        number = strtol(id, &end, 10);
-
-        if (!*end)
-            sprintf(id, "%03d", number);
-    }
 }

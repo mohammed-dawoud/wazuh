@@ -6,21 +6,68 @@ on:
     paths:
       - "src/**"
       - ".github/workflows/5_testcomponent_windows-installer-upgrade.yml"
+      - ".github/actions/reinstall_cmake/**"
+      - "!src/engine/**"
+      - "!src/remoted/**"
+      - "!src/util/**"
+      - "!src/shared_modules/indexer_connector/**"
+      - "!src/shared_modules/keystore/**"
+      # Only src/ for these server trees: agent modules compile against their include/
+      - "!src/monitord/src/**"
+      - "!src/os_auth/src/**"
+      - "!src/wazuh_db/src/**"
+      - "!src/wazuh_db/schemas/**"
+      - "!src/shared_modules/content_manager/src/**"
+      - "!src/wazuh_modules/vulnerability_scanner/src/**"
+      - "!src/wazuh_modules/inventory_sync_server/src/**"
+      # Test trees: UNIT_TEST-gated, never built by this workflow
+      - "!src/unit_tests/**"
+      - "!src/**/tests/**"
+      - "!src/wazuh_modules/inventory_sync_server/test/**"
+      - "!src/**/integrationTests/**"
+      # qa/ suites run in other workflows; win32/qa stays (executed here)
+      - "!src/data_provider/qa/**"
+      - "!src/shared_modules/indexer_connector/qa/**"
+      - "!src/shared_modules/keystore/qa/**"
+      - "!src/wazuh_modules/vulnerability_scanner/qa/**"
+      - "!src/wazuh_modules/inventory_sync_server/qa/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   build:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Install mingw
-        run: sudo apt install gcc-mingw-w64 g++-mingw-w64-i686 g++-mingw-w64-x86-64 -y
+        run: |
+          sudo apt-get update
+          sudo apt install gcc-mingw-w64 g++-mingw-w64-i686 g++-mingw-w64-x86-64 make -y
       - uses: actions/checkout@v3
       - name: "Install a compatible CMake"
         uses: ./.github/actions/reinstall_cmake
+      # Compilation cache (issue 38139). Skipped on fork PRs (no credentials).
+      - name: "Configure AWS credentials for the compilation cache"
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.CI_OIDC_ROLE_ARN }}
+          aws-region: ${{ secrets.CI_AWS_REGION }}
+          role-duration-seconds: 7200
+      - name: "Set up sccache"
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: ./.github/actions/setup-sccache
+        with:
+          bucket: ${{ secrets.CI_INTERNAL_S3_BUCKET }}
+          region: ${{ secrets.CI_AWS_REGION }}
+          key-prefix: sccache/5.0.0
       - name: make deps
         run: make -C src deps TARGET=winagent -j2
       - name: make
@@ -34,16 +81,23 @@ jobs:
       - name: Compress folder
         run: 7z a win-agent-base.zip ./*
       - name: Upload base branch folder
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/upload_s3_artifact
         with:
+          aws_region: ${{ secrets.CI_AWS_REGION }}
+          bucket: ${{ secrets.CI_INTERNAL_S3_BUCKET }}
+          aws_role: ${{ secrets.CI_OIDC_ROLE_ARN }}
           name: win-agent-base.zip
           path: win-agent-base.zip
+      - name: "Compilation cache statistics"
+        if: always()
+        run: sccache --show-stats 2>/dev/null | grep -viE "cache location|bucket" || true
 
   check_upgrade_result:
     strategy:
           matrix:
               wazuh_version: [4.14.0-1]
     runs-on: windows-2025
+    timeout-minutes: 30
     needs: build
     steps:
       - name: Checkout Repo
@@ -53,9 +107,6 @@ jobs:
         with:
           python-version-file: ".github/workflows/.python-version"
           architecture: x64
-      - name: Add WiX toolkit to PATH
-        shell: bash
-        run: echo "${WIX}bin" >> $GITHUB_PATH
       - name: Install dependencies
         run: |
           pip install -r src/win32/qa/requirements.txt
@@ -64,8 +115,11 @@ jobs:
           mkdir C:\win-agent-released
           python -m wget https://packages.wazuh.com/4.x/windows/wazuh-agent-${{ matrix.wazuh_version }}.msi -o C:\win-agent-released
       - name: Download base folder
-        uses: actions/download-artifact@v4
+        uses: ./.github/actions/download_s3_artifact
         with:
+          aws_region: ${{ secrets.CI_AWS_REGION }}
+          bucket: ${{ secrets.CI_INTERNAL_S3_BUCKET }}
+          aws_role: ${{ secrets.CI_OIDC_ROLE_ARN }}
           name: win-agent-base.zip
           path: C:\win-agent-base
       - name: Unzip base folder
@@ -89,13 +143,19 @@ jobs:
           python -m pytest -vv ./test_win_upgrade.py
       - name: Upload release installation log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/upload_s3_artifact
         with:
+          aws_region: ${{ secrets.CI_AWS_REGION }}
+          bucket: ${{ secrets.CI_INTERNAL_S3_BUCKET }}
+          aws_role: ${{ secrets.CI_OIDC_ROLE_ARN }}
           name: release_log
           path: C:\win-agent-released\win-agent-released.log
       - name: Upload base installation log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: ./.github/actions/upload_s3_artifact
         with:
+          aws_region: ${{ secrets.CI_AWS_REGION }}
+          bucket: ${{ secrets.CI_INTERNAL_S3_BUCKET }}
+          aws_role: ${{ secrets.CI_OIDC_ROLE_ARN }}
           name: base_log
           path: C:\win-agent-base\win-agent-base.log

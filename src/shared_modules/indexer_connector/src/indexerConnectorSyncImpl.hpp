@@ -10,30 +10,23 @@
  */
 
 #include "IURLRequest.hpp"
+#include "exponentialBackoff.hpp"
 #include "external/nlohmann/json.hpp"
 #include "indexerConnector.hpp"
-#include "keyStore.hpp"
+#include "indexerTransport.hpp"
 #include "loggerHelper.h"
 #include "reflectiveJson.hpp"
 #include "secureCommunication.hpp"
-#include "shared_modules/utils/certHelper.hpp"
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
-#include <filesystem>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <thread>
 #include <vector>
-
-static std::mutex G_CREDENTIAL_MUTEX;
-
-constexpr auto DEFAULT_PATH {"tmp/root-ca-merged.pem"};
-constexpr auto INDEXER_COLUMN {"indexer"};
-constexpr auto USER_KEY {"username"};
-constexpr auto PASSWORD_KEY {"password"};
 
 constexpr auto HTTP_OK {200};
 constexpr auto HTTP_CREATED {201};
@@ -111,6 +104,43 @@ inline void appendEscapedId(std::string& bulkData, std::string_view id)
 }
 
 /**
+ * @brief Builds an update operation with Painless script for version checking
+ * @param bulkData The string to append the update operation to
+ * @param index Index name
+ * @param id Document ID (will be escaped if needed)
+ * @param version Document version to check against state.document_version
+ * @param data Document data (JSON string)
+ *
+ * The script implements external_gte behavior on state.document_version:
+ * - Updates if state.document_version is null or <= provided version
+ * - No-op if state.document_version > provided version
+ */
+inline void appendScriptedUpdate(
+    std::string& bulkData, std::string_view index, std::string_view id, std::string_view version, std::string_view data)
+{
+    // Build update operation metadata
+    bulkData.append(R"({"update":{"_index":")");
+    bulkData.append(index);
+    bulkData.append(R"(","_id":")");
+    appendEscapedId(bulkData, id);
+    bulkData.append(R"("}})");
+    bulkData.append("\n");
+
+    // Build script that checks state.document_version field
+    bulkData.append(R"({"script":{"source":")");
+    bulkData.append(
+        R"(if (ctx._source?.state?.document_version == null || ctx._source.state.document_version <= params.doc_version) { ctx._source = params.doc } else { ctx.op = 'noop' })");
+    bulkData.append(R"(","lang":"painless","params":{"doc_version":)");
+    bulkData.append(version);
+    bulkData.append(R"(,"doc":)");
+    bulkData.append(data);
+    bulkData.append(R"(}},"upsert":)");
+    bulkData.append(data);
+    bulkData.append(R"(,"scripted_upsert":true})");
+    bulkData.append("\n");
+}
+
+/**
  * @brief Validates bulk API response at document level
  * @param response The bulk API response JSON string
  * @return true if all operations succeeded (or had acceptable version conflicts), false otherwise
@@ -144,7 +174,7 @@ inline bool validateBulkResponse(const std::string& response, const char* tag)
         // Errors were reported, validate each item
         if (!responseJson.contains("items") || !responseJson["items"].is_array())
         {
-            logError(tag, "Bulk response has errors but missing 'items' array");
+            logWarn(tag, "Bulk response has errors but missing 'items' array");
             return false;
         }
 
@@ -171,7 +201,7 @@ inline bool validateBulkResponse(const std::string& response, const char* tag)
             // Check status code
             if (!result.contains("status"))
             {
-                logError(tag, "Item missing status field");
+                logDebug1(tag, "Item missing status field");
                 realFailureCount++;
                 continue;
             }
@@ -237,30 +267,40 @@ inline bool validateBulkResponse(const std::string& response, const char* tag)
                 }
             }
 
-            logError(
+            logWarn(
                 tag, "Indexing failure for %s operation (status %d): %s", operation.c_str(), status, errorMsg.c_str());
             realFailureCount++;
         }
 
-        // Log summary
-        logInfo(tag,
-                "Bulk operation summary: %zu total, %zu success, %zu acceptable version conflicts, %zu failures",
-                totalItems,
-                successCount,
-                versionConflictAcceptedCount,
-                realFailureCount);
+        if (realFailureCount > 0)
+        {
+            logWarn(tag,
+                    "Bulk operation summary: %zu total, %zu success, %zu acceptable version conflicts, %zu failures",
+                    totalItems,
+                    successCount,
+                    versionConflictAcceptedCount,
+                    realFailureCount);
+        }
+        else
+        {
+            logDebug2(tag,
+                      "Bulk operation summary: %zu total, %zu success, %zu acceptable version conflicts",
+                      totalItems,
+                      successCount,
+                      versionConflictAcceptedCount);
+        }
 
         // Return success only if no real failures occurred
         return realFailureCount == 0;
     }
     catch (const nlohmann::json::exception& e)
     {
-        logError(tag, "Failed to parse bulk response: %s", e.what());
+        logWarn(tag, "Failed to parse bulk response: %s", e.what());
         return false;
     }
     catch (const std::exception& e)
     {
-        logError(tag, "Error validating bulk response: %s", e.what());
+        logWarn(tag, "Error validating bulk response: %s", e.what());
         return false;
     }
 }
@@ -269,10 +309,13 @@ template<typename TSelector,
          typename THttpRequest,
          size_t MaxBulkSize = 10 * 1024 * 1024,
          size_t RetryDelay = 1,
-         size_t FlushInterval = 20>
+         size_t FlushInterval = 20,
+         size_t MaxRetryDelay = 15>
 class IndexerConnectorSyncImpl final
 {
-    const std::string m_logTag;
+    static_assert(RetryDelay > 0, "RetryDelay must be greater than 0");
+
+    LogFn m_logFn;
     SecureCommunication m_secureCommunication;
     std::unique_ptr<TSelector> m_selector;
     THttpRequest* m_httpRequest;
@@ -282,10 +325,28 @@ class IndexerConnectorSyncImpl final
     std::chrono::steady_clock::time_point m_lastBulkTime;
     std::condition_variable m_cv;
     std::mutex m_mutex;
+    // Dedicated to the retry-backoff sleep: processBulk()/processBulkChunk() hold m_mutex while
+    // running (see the bulk-thread loop below), so reusing it here would self-deadlock on failure.
+    std::mutex m_retryMutex;
+    std::condition_variable m_retryCv;
     std::thread m_bulkThread;
     std::atomic<bool> m_stopping {false};
     std::vector<size_t> m_boundaries;
     bool m_shouldNotifyAfterBulk {false};
+    size_t m_maxBulkSize {MaxBulkSize};
+    size_t m_flushInterval {FlushInterval};
+    size_t m_maxRetryDelay {MaxRetryDelay};
+    /// Fallback for 'request_timeout_seconds' when the configuration has no opinion.
+    static constexpr long DEFAULT_REQUEST_TIMEOUT_SECONDS {60};
+    /// Upper bound in milliseconds for one data request against the indexer
+    /// ('request_timeout_seconds'; 0 disables the bound). Unreachable hosts are the monitor's
+    /// job -- this bound is the only thing that catches a host that ACCEPTED the connection and
+    /// then never answers, which otherwise blocks the caller inside curl_easy_perform forever.
+    long m_requestTimeoutMs {DEFAULT_REQUEST_TIMEOUT_SECONDS * 1000};
+    /// Fallback for 'monitoring_interval_seconds' when the configuration has no opinion. Kept
+    /// equal to monitoring.hpp's DEFAULT_MONITORING_INTERVAL, which this selector-agnostic
+    /// template deliberately does not include.
+    static constexpr long DEFAULT_MONITORING_INTERVAL_SECONDS {10};
 
     void processBulk()
     {
@@ -296,9 +357,48 @@ class IndexerConnectorSyncImpl final
         }
 
         auto serverUrl = m_selector->getNext();
+
+        // A _delete_by_query answers 200 even when it deleted nothing it was asked to: per-shard
+        // errors come back in a `failures` array inside the body. Reporting that run as success is
+        // how documents survive a deletion that everyone upstream believes worked, so the failures
+        // are raised like a transport error and the caller decides whether to retry.
         const auto onSuccessDeleteByQuery = [this](const std::string& response)
         {
-            logDebug2(m_logTag.c_str(), "Response: %s", response.c_str());
+            LOGFN_DEBUG2(m_logFn, "Response: %s", response.c_str());
+
+            const auto parsed = nlohmann::json::parse(response, nullptr, false);
+            if (parsed.is_discarded())
+            {
+                return;
+            }
+
+            const auto failures =
+                (parsed.contains("failures") && parsed.at("failures").is_array()) ? parsed.at("failures").size() : 0;
+
+            // The OTHER way a 200 leaves documents behind. `conflicts: "proceed"` (set when the
+            // query is staged) makes the run skip a document whose version moved between the search
+            // and the delete instead of aborting -- and OpenSearch tallies those skips in
+            // `version_conflicts`, NOT in `failures`. To the caller both mean the same thing:
+            // documents it asked to delete are still there. So both are raised, because for a
+            // whole-agent deletion the documented recovery is re-running the delete, and nothing
+            // re-runs it while this reports success.
+            const auto conflicts =
+                (parsed.contains("version_conflicts") && parsed.at("version_conflicts").is_number_integer())
+                    ? parsed.at("version_conflicts").get<std::size_t>()
+                    : 0;
+
+            if (failures == 0 && conflicts == 0)
+            {
+                return;
+            }
+
+            LOGFN_WARN(m_logFn,
+                       "deleteByQuery left documents behind: %zu shard failure(s), %zu version conflict(s). "
+                       "Response: %s",
+                       failures,
+                       conflicts,
+                       response.c_str());
+            throw IndexerConnectorException("deleteByQuery did not delete every matching document");
         };
 
         const auto onErrorDeleteByQuery =
@@ -307,26 +407,30 @@ class IndexerConnectorSyncImpl final
             if (statusCode == HTTP_NOT_FOUND)
             {
                 // Index doesn't exist - this is OK, nothing to delete
-                logDebug2(m_logTag.c_str(), "Index not found (404) for deleteByQuery - nothing to delete, continuing.");
+                LOGFN_DEBUG2(m_logFn, "Index not found (404) for deleteByQuery - nothing to delete, continuing.");
                 return;
             }
             else if (statusCode == HTTP_VERSION_CONFLICT)
             {
-                logDebug2(m_logTag.c_str(), "Document version conflict for deleteByQuery - continuing.");
+                LOGFN_DEBUG2(m_logFn, "Document version conflict for deleteByQuery - continuing.");
                 // For deleteByQuery, we don't retry - just log and continue
                 return;
             }
             else if (statusCode == HTTP_TOO_MANY_REQUESTS)
             {
-                logDebug2(m_logTag.c_str(), "Too many requests for deleteByQuery - continuing.");
+                LOGFN_DEBUG2(m_logFn, "Too many requests for deleteByQuery - continuing.");
                 // For deleteByQuery, we don't retry - just log and continue
                 return;
             }
             else
             {
-                logError(m_logTag.c_str(), "deleteByQuery error: %s, status code: %ld.", error.c_str(), statusCode);
-                m_bulkData.clear();
-                m_lastBulkTime = std::chrono::steady_clock::now();
+                // Includes transport-level failures (timeout, connection refused: statusCode <= 0).
+                // Raise it and let the catch around the post drop the staged queries -- the caller
+                // retries by re-staging them. The staged BULK data is deliberately left alone: it
+                // has not been attempted yet (deletes go out before the bulk POST) and the next
+                // flush sends it; clearing it here without clearing m_boundaries desyncs the two
+                // and a later 413 split would then index past the end of the buffer.
+                LOGFN_WARN(m_logFn, "deleteByQuery error: %s, status code: %ld.", error.c_str(), statusCode);
                 throw IndexerConnectorException(error);
             }
         };
@@ -341,22 +445,34 @@ class IndexerConnectorSyncImpl final
             url += "/";
             url += index;
             url += "/_delete_by_query";
-            logDebug2(m_logTag.c_str(), "Deleting by query: %s", url.c_str());
-            m_httpRequest->post(
-                RequestParameters {
-                    .url = HttpURL(url), .data = query.dump(), .secureCommunication = m_secureCommunication},
-                PostRequestParameters {.onSuccess = onSuccessDeleteByQuery, .onError = onErrorDeleteByQuery},
-                {});
+            LOGFN_DEBUG2(m_logFn, "Deleting by query: %s", url.c_str());
+            try
+            {
+                m_httpRequest->post(
+                    RequestParameters {
+                        .url = HttpURL(url), .data = query.dump(), .secureCommunication = m_secureCommunication},
+                    PostRequestParameters {.onSuccess = onSuccessDeleteByQuery, .onError = onErrorDeleteByQuery},
+                    ConfigurationParameters {.timeout = m_requestTimeoutMs});
+            }
+            catch (...)
+            {
+                // Drop the staged queries on the way out. The caller is being told this flush
+                // failed, and it retries by re-staging its own queries; queries kept here would
+                // instead be re-fired by whatever flushes next -- after the retry already
+                // succeeded -- deleting documents written in between.
+                m_deleteByQuery.clear();
+                m_lastBulkTime = std::chrono::steady_clock::now();
+                throw;
+            }
         }
 
         const auto onSuccess = [this, &needToRetry](const std::string& response)
         {
-            logDebug2(m_logTag.c_str(), "Response: %s", response.c_str());
+            LOGFN_DEBUG2(m_logFn, "Response: %s", response.c_str());
 
             // Validate bulk response at document level
-            if (!validateBulkResponse(response, m_logTag.c_str()))
+            if (!validateBulkResponse(response, m_logFn.c_str()))
             {
-                logError(m_logTag.c_str(), "Bulk operation had indexing failures");
                 m_bulkData.clear();
                 m_boundaries.clear();
                 m_lastBulkTime = std::chrono::steady_clock::now();
@@ -371,17 +487,16 @@ class IndexerConnectorSyncImpl final
                                                   const long statusCode,
                                                   const std::string& responseBody) -> void
         {
-            logError(m_logTag.c_str(), "%s, status code: %ld.", error.c_str(), statusCode);
             if (statusCode == HTTP_CONTENT_LENGTH)
             {
-                logDebug2(m_logTag.c_str(), "Received 413 error (Payload Too Large). Splitting bulk data.");
+                LOGFN_DEBUG2(m_logFn, "Received 413 error (Payload Too Large). Splitting bulk data.");
                 if (const size_t currentOperations = m_boundaries.size(); currentOperations <= 1)
                 {
-                    logError(m_logTag.c_str(),
-                             "Unable to send data even with single operation. "
-                             "Consider increasing http.max_content_length in OpenSearch settings. "
-                             "Current data size: %zu bytes.",
-                             m_bulkData.size());
+                    LOGFN_WARN(m_logFn,
+                               "Unable to send data even with single operation. "
+                               "Consider increasing http.max_content_length in OpenSearch settings. "
+                               "Current data size: %zu bytes.",
+                               m_bulkData.size());
                     m_bulkData.clear();
                     m_boundaries.clear();
                     throw IndexerConnectorException("Single operation exceeds server payload limits");
@@ -390,9 +505,9 @@ class IndexerConnectorSyncImpl final
             }
             else if (statusCode == HTTP_VERSION_CONFLICT)
             {
-                logWarn(m_logTag.c_str(),
-                        "Bulk request returned 409 version conflict at request level. Document-level conflicts are "
-                        "handled by validateBulkResponse().");
+                LOGFN_WARN(m_logFn,
+                           "Bulk request returned 409 version conflict at request level. Document-level conflicts are "
+                           "handled by validateBulkResponse().");
                 m_bulkData.clear();
                 m_boundaries.clear();
                 m_lastBulkTime = std::chrono::steady_clock::now();
@@ -401,11 +516,22 @@ class IndexerConnectorSyncImpl final
             else if (statusCode == HTTP_TOO_MANY_REQUESTS)
             {
                 needToRetry = true;
-                logDebug2(m_logTag.c_str(), "Too many requests, retrying in 1 second.");
+                LOGFN_DEBUG2(m_logFn, "Too many requests, retrying with exponential backoff.");
+            }
+            else if (statusCode <= 0)
+            {
+                // No HTTP response at all (timeout, connection refused, TLS failure): the transport
+                // reports these as a negative status. Discarding here would turn every transient
+                // outage into silent data loss, so keep the batch and retry with backoff.
+                needToRetry = true;
+                LOGFN_DEBUG2(m_logFn,
+                             "Transport-level failure, no HTTP status received (code %ld): %s. Retrying bulk request.",
+                             statusCode,
+                             error.c_str());
             }
             else
             {
-                logError(m_logTag.c_str(), "%s, status code: %ld.", error.c_str(), statusCode);
+                LOGFN_WARN(m_logFn, "%s, status code: %ld.", error.c_str(), statusCode);
                 m_bulkData.clear();
                 m_boundaries.clear();
                 m_lastBulkTime = std::chrono::steady_clock::now();
@@ -416,28 +542,35 @@ class IndexerConnectorSyncImpl final
         // Only process bulk data if there is data to process
         if (!m_bulkData.empty())
         {
+            IndexerExponentialBackoff retryBackoff {std::chrono::seconds {RetryDelay},
+                                                    std::chrono::seconds {m_maxRetryDelay}};
             do
             {
                 if (m_stopping.load())
                 {
-                    logDebug2(m_logTag.c_str(), "Stopping requested, aborting bulk processing");
+                    LOGFN_DEBUG2(m_logFn, "Stopping requested, aborting bulk processing");
                     return;
                 }
+                needToRetry = false;
 
                 std::string url;
                 url += m_selector->getNext();
                 url += "/_bulk";
-                logDebug2(m_logTag.c_str(), "Sending bulk data to: %s", url.c_str());
-                logDebug2(m_logTag.c_str(), "Bulk data: %s", m_bulkData.c_str());
+                LOGFN_DEBUG2(m_logFn, "Sending bulk data to: %s", url.c_str());
+                LOGFN_DEBUG2(m_logFn, "Bulk data: %s", m_bulkData.c_str());
 
                 m_httpRequest->post(RequestParameters {.url = HttpURL(url),
                                                        .data = m_bulkData,
                                                        .secureCommunication = m_secureCommunication},
                                     PostRequestParameters {.onSuccess = onSuccess, .onError = onError},
-                                    {});
-                if (needToRetry && RetryDelay > 0)
+                                    ConfigurationParameters {.timeout = m_requestTimeoutMs});
+                if (needToRetry)
                 {
-                    std::this_thread::sleep_for(std::chrono::seconds(RetryDelay));
+                    const auto retryDelay = retryBackoff.nextDelay();
+                    LOGFN_DEBUG2(
+                        m_logFn, "Retrying bulk request in %lld ms.", static_cast<long long>(retryDelay.count()));
+                    std::unique_lock<std::mutex> lock(m_retryMutex);
+                    m_retryCv.wait_for(lock, retryDelay, [this]() { return m_stopping.load(); });
                 }
             } while (needToRetry);
         }
@@ -462,7 +595,7 @@ class IndexerConnectorSyncImpl final
                 "Cannot split bulk data with less than two operations. Consider increasing http.max_content_length in "
                 "Wazuh-Indexer settings.");
         }
-        logDebug2(m_logTag.c_str(), "Splitting %zu operations into two halves", totalOperations);
+        LOGFN_DEBUG2(m_logFn, "Splitting %zu operations into two halves", totalOperations);
 
         const size_t midPoint = totalOperations / 2;
         std::span<size_t> firstBoundaries(m_boundaries.begin(), m_boundaries.begin() + midPoint);
@@ -481,7 +614,7 @@ class IndexerConnectorSyncImpl final
             }
             catch (const IndexerConnectorException& e)
             {
-                logError(m_logTag.c_str(), "Failed to process first half: %s", e.what());
+                LOGFN_DEBUG1(m_logFn, "Failed to process first half: %s", e.what());
                 allProcessed = false;
                 throw;
             }
@@ -494,7 +627,7 @@ class IndexerConnectorSyncImpl final
             }
             catch (const IndexerConnectorException& e)
             {
-                logError(m_logTag.c_str(), "Failed to process second half: %s", e.what());
+                LOGFN_DEBUG1(m_logFn, "Failed to process second half: %s", e.what());
                 allProcessed = false;
                 throw;
             }
@@ -510,31 +643,26 @@ class IndexerConnectorSyncImpl final
 
     void processBulkChunk(std::string_view data, const std::span<size_t>& boundaries)
     {
-        std::string url;
-        url += m_selector->getNext();
-        url += "/_bulk";
         bool needToRetry = false;
 
         const auto onSuccess = [this](const std::string& response)
         {
-            logDebug2(m_logTag.c_str(), "Chunk processed successfully: %s", response.c_str());
+            LOGFN_DEBUG2(m_logFn, "Chunk processed successfully: %s", response.c_str());
 
             // Validate bulk response at document level
-            if (!validateBulkResponse(response, m_logTag.c_str()))
+            if (!validateBulkResponse(response, m_logFn.c_str()))
             {
-                logError(m_logTag.c_str(), "Bulk chunk operation had indexing failures");
                 throw IndexerConnectorException("Bulk chunk operation had indexing failures");
             }
         };
         const auto onError = [this, &needToRetry, boundaries](
                                  const std::string& error, const long statusCode, const std::string& responseBody)
         {
-            logError(m_logTag.c_str(), "Chunk processing failed: %s, status code: %ld", error.c_str(), statusCode);
             if (statusCode == HTTP_CONTENT_LENGTH)
             {
                 if (boundaries.size() > 1)
                 {
-                    logDebug2(m_logTag.c_str(), "Chunk still too large, splitting recursively");
+                    LOGFN_DEBUG2(m_logFn, "Chunk still too large, splitting recursively");
                     const size_t midPoint = boundaries.size() / 2;
                     std::span<size_t> firstBoundaries(boundaries.begin(),
                                                       boundaries.begin() + static_cast<long>(midPoint));
@@ -548,43 +676,68 @@ class IndexerConnectorSyncImpl final
                     processBulkChunk(secondHalf, secondBoundaries);
                     return;
                 }
-                logError(m_logTag.c_str(), "Single operation too large for server limits");
+                LOGFN_WARN(m_logFn, "Single operation too large for server limits");
                 throw IndexerConnectorException("Single operation exceeds server limits");
             }
             else if (statusCode == HTTP_VERSION_CONFLICT)
             {
-                logWarn(m_logTag.c_str(),
-                        "Bulk chunk returned 409 version conflict at request level. Document-level conflicts are "
-                        "handled by validateBulkResponse().");
+                LOGFN_WARN(m_logFn,
+                           "Bulk chunk returned 409 version conflict at request level. Document-level conflicts are "
+                           "handled by validateBulkResponse().");
                 throw IndexerConnectorException("Bulk version conflict at request level");
             }
             else if (statusCode == HTTP_TOO_MANY_REQUESTS)
             {
-                logDebug2(m_logTag.c_str(), "Too many requests, retrying in 1 second.");
+                LOGFN_DEBUG2(m_logFn, "Too many requests, retrying with exponential backoff.");
                 needToRetry = true;
+            }
+            else if (statusCode <= 0)
+            {
+                // Transport-level failure (timeout, connection refused, TLS failure): retry the
+                // chunk with backoff instead of throwing, which would abandon the whole split and
+                // resend the full oversized batch just to hit 413 and split again. The chunk views
+                // stay valid across retries: they point into m_bulkData, which is only cleared by
+                // splitAndProcessBulk() after every chunk went through.
+                needToRetry = true;
+                LOGFN_DEBUG2(m_logFn,
+                             "Transport-level failure, no HTTP status received (code %ld): %s. Retrying bulk chunk.",
+                             statusCode,
+                             error.c_str());
             }
             else
             {
+                LOGFN_WARN(m_logFn, "Chunk processing failed: %s, status code: %ld", error.c_str(), statusCode);
                 throw IndexerConnectorException(error);
             }
         };
+        IndexerExponentialBackoff retryBackoff {std::chrono::seconds {RetryDelay},
+                                                std::chrono::seconds {m_maxRetryDelay}};
         do
         {
             if (m_stopping.load())
             {
-                logDebug2(m_logTag.c_str(), "Stopping requested, aborting bulk chunk processing");
+                LOGFN_DEBUG2(m_logFn, "Stopping requested, aborting bulk chunk processing");
                 return;
             }
             needToRetry = false;
-            logDebug2(m_logTag.c_str(), "Sending bulk chunk to: %s", url.c_str());
+            // Resolved inside the loop so a retry rotates to the next healthy host -- and throws
+            // (batch retained, resent by a later flush) once the monitor marks every host down,
+            // instead of hammering the same dead host forever while holding m_mutex.
+            std::string url;
+            url += m_selector->getNext();
+            url += "/_bulk";
+            LOGFN_DEBUG2(m_logFn, "Sending bulk chunk to: %s", url.c_str());
             m_httpRequest->post(RequestParametersStringView {.url = HttpURL(url),
                                                              .data = data,
                                                              .secureCommunication = m_secureCommunication},
                                 PostRequestParameters {.onSuccess = onSuccess, .onError = onError},
-                                {});
-            if (needToRetry && RetryDelay > 0)
+                                ConfigurationParameters {.timeout = m_requestTimeoutMs});
+            if (needToRetry)
             {
-                std::this_thread::sleep_for(std::chrono::seconds(RetryDelay));
+                const auto retryDelay = retryBackoff.nextDelay();
+                LOGFN_DEBUG2(m_logFn, "Retrying bulk chunk in %lld ms.", static_cast<long long>(retryDelay.count()));
+                std::unique_lock<std::mutex> lock(m_retryMutex);
+                m_retryCv.wait_for(lock, retryDelay, [this]() { return m_stopping.load(); });
             }
         } while (needToRetry);
     }
@@ -592,9 +745,16 @@ class IndexerConnectorSyncImpl final
 public:
     ~IndexerConnectorSyncImpl()
     {
+        // Order matters: set m_stopping (lock-free) and wake m_retryCv before touching m_mutex - if
+        // the bulk thread is retrying inside processBulk()/etc, it holds m_mutex while asleep on
+        // m_retryCv, so locking m_mutex first would block until that retry gives up on its own.
+        m_stopping.store(true);
         {
-            std::lock_guard timeoutLock(m_mutex);
-            m_stopping.store(true);
+            std::lock_guard<std::mutex> lock(m_retryMutex);
+            m_retryCv.notify_all();
+        }
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
             m_cv.notify_one();
         }
         if (m_bulkThread.joinable())
@@ -609,79 +769,83 @@ public:
             logFunction,
         THttpRequest* httpRequest = nullptr,
         std::unique_ptr<TSelector> selector = nullptr,
-        std::string callerName = "")
-        : m_logTag(callerName.empty() ? "indexer-connector" : callerName + " (indexer-connector)")
+        std::string callerName = "",
+        std::optional<SecureCommunication> secureCommunication = std::nullopt)
+        : m_logFn {}
         , m_httpRequest(httpRequest ? httpRequest : &THttpRequest::instance())
     {
+        m_logFn = LogFn {callerName}.compose("indexer-connector");
+        // Install caller context so sub-objects (RocksDB queues, dispatchers) pick up the right base tag
+        // via makeLibLogFn(). Restores the previous TL value when the constructor exits.
+        const Log::ScopedModuleLogFn guard {callerName.empty() ? LogFn {"indexer-connector"} : LogFn {callerName}};
+
         if (logFunction)
         {
             Log::assignLogFunction(logFunction);
         }
 
-        std::string caRootCertificate;
-        std::string sslCertificate;
-        std::string sslKey;
-        if (config.contains("ssl"))
-        {
-            if (config.at("ssl").contains("certificate_authorities") &&
-                !config.at("ssl").at("certificate_authorities").empty())
-            {
-                std::vector<std::string> filePaths =
-                    config.at("ssl").at("certificate_authorities").get<std::vector<std::string>>();
-                if (filePaths.size() > 1)
-                {
-                    Utils::CertHelper::mergeCaRootCertificates(filePaths, caRootCertificate, DEFAULT_PATH);
-                }
-                else
-                {
-                    if (std::filesystem::exists(filePaths.front()))
-                    {
-                        caRootCertificate = filePaths.front();
-                    }
-                    else
-                    {
-                        throw IndexerConnectorException("The CA root certificate file: '" + filePaths.front() +
-                                                        "' does not exist.");
-                    }
-                }
-            }
-            if (config.at("ssl").contains("certificate"))
-            {
-                sslCertificate = config.at("ssl").at("certificate").get_ref<const std::string&>();
-            }
-            if (config.at("ssl").contains("key"))
-            {
-                sslKey = config.at("ssl").at("key").get_ref<const std::string&>();
-            }
-        }
-
+        // `hosts` FIRST. Deliberately reordered: it used to be checked between the ssl block and the
+        // keystore read. It is the cheapest check and the most common one to fail, and doing it first
+        // means a config with no hosts never opens `queue/keystore` (RocksDB) on its way to throwing.
+        // Only observable change: with BOTH a nonexistent CA file and no hosts, the reported error is
+        // now the hosts one.
         if (!config.contains("hosts") || config.at("hosts").empty())
         {
             throw IndexerConnectorException("No hosts found in the configuration");
         }
 
-        std::lock_guard lock(G_CREDENTIAL_MUTEX);
-        static auto username = Keystore::get(INDEXER_COLUMN, USER_KEY);
-        static auto password = Keystore::get(INDEXER_COLUMN, PASSWORD_KEY);
-        if (username.empty() && password.empty())
-        {
-            username = "admin";
-            password = "admin";
-            logWarn(m_logTag.c_str(), "No username and password found in the keystore, using default values.");
-        }
-        if (username.empty())
-        {
-            username = "admin";
-            logWarn(m_logTag.c_str(), "No username found in the keystore, using default value.");
-        }
-        m_secureCommunication = SecureCommunication::builder();
-        m_secureCommunication.basicAuth(username + ":" + password)
-            .sslCertificate(sslCertificate)
-            .sslKey(sslKey)
-            .caRootCertificate(caRootCertificate);
+        // Supplied by an IndexerSession when several connectors share one; built here otherwise.
+        // Either way this connector keeps its own copy: the selector is only one of ten consumers,
+        // every bulk/search request below uses it too.
+        m_secureCommunication =
+            secureCommunication ? std::move(*secureCommunication) : buildSecureCommunication(config, m_logFn);
 
-        m_selector =
-            selector ? std::move(selector) : std::make_unique<TSelector>(config.at("hosts"), 10, m_secureCommunication);
+        if (selector)
+        {
+            m_selector = std::move(selector);
+        }
+        else
+        {
+            // Health-monitor polling period, read only by whoever builds the monitor.
+            const auto monitoringInterval = config.contains("monitoring_interval_seconds") &&
+                                                    config.at("monitoring_interval_seconds").is_number_integer()
+                                                ? config.at("monitoring_interval_seconds").get<long>()
+                                                : DEFAULT_MONITORING_INTERVAL_SECONDS;
+            if (monitoringInterval < 1)
+            {
+                throw IndexerConnectorException("monitoring_interval_seconds must be >= 1");
+            }
+
+            m_selector = std::make_unique<TSelector>(
+                config.at("hosts"), static_cast<uint32_t>(monitoringInterval), m_secureCommunication);
+        }
+
+        m_maxBulkSize = config.contains("max_bulk_size") && config.at("max_bulk_size").is_number_integer()
+                            ? config.at("max_bulk_size").get<size_t>()
+                            : MaxBulkSize;
+
+        m_flushInterval =
+            config.contains("flush_interval_seconds") && config.at("flush_interval_seconds").is_number_integer()
+                ? config.at("flush_interval_seconds").get<size_t>()
+                : FlushInterval;
+
+        m_maxRetryDelay =
+            config.contains("max_retry_delay_seconds") && config.at("max_retry_delay_seconds").is_number_integer()
+                ? config.at("max_retry_delay_seconds").get<size_t>()
+                : MaxRetryDelay;
+        if (m_maxRetryDelay < RetryDelay)
+        {
+            throw IndexerConnectorException("max_retry_delay_seconds must be >= the base retry delay");
+        }
+
+        m_requestTimeoutMs =
+            config.contains("request_timeout_seconds") && config.at("request_timeout_seconds").is_number_integer()
+                ? config.at("request_timeout_seconds").get<long>() * 1000
+                : m_requestTimeoutMs;
+        if (m_requestTimeoutMs < 0)
+        {
+            throw IndexerConnectorException("request_timeout_seconds must be >= 0 (0 disables the bound)");
+        }
 
         m_lastBulkTime = std::chrono::steady_clock::now();
         m_bulkThread = std::thread(
@@ -691,7 +855,7 @@ public:
                 while (!m_stopping.load())
                 {
                     auto timeoutResult = m_cv.wait_for(
-                        timeoutLock, std::chrono::seconds(FlushInterval), [this] { return m_stopping.load(); });
+                        timeoutLock, std::chrono::seconds(m_flushInterval), [this] { return m_stopping.load(); });
 
                     // Process bulk data or deleteByQuery if there's data to process
                     if (!m_bulkData.empty() || !m_deleteByQuery.empty())
@@ -717,11 +881,11 @@ public:
                         }
                         catch (const IndexerConnectorException& e)
                         {
-                            logError(m_logTag.c_str(), "Error processing bulk: %s", e.what());
+                            LOGFN_WARN(m_logFn, "Error processing bulk: %s", e.what());
                         }
                         catch (const std::exception& e)
                         {
-                            logDebug2(m_logTag.c_str(), "Cannot process bulk: %s", e.what());
+                            LOGFN_DEBUG2(m_logFn, "Cannot process bulk: %s", e.what());
                         }
                     }
 
@@ -734,18 +898,43 @@ public:
             });
     }
 
-    void deleteByQuery(const std::string& index, const std::string& agentId)
+    void deleteByQuery(const std::string& index, const std::string& agentId, const std::string& clusterName = {})
     {
         if (!isSafeIndexName(index))
         {
-            logWarn(m_logTag.c_str(),
-                    "Refusing deleteByQuery for unsafe index name '%s' (empty or contains characters outside "
-                    "[a-zA-Z0-9._*-]).",
-                    index.c_str());
-            throw IndexerConnectorException("Unsafe index name");
+            throw IndexerConnectorException("deleteByQuery: unsafe index name '" + index +
+                                            "' (empty or contains characters outside [a-zA-Z0-9._*-])");
         }
+
         auto [it, success] = m_deleteByQuery.try_emplace(index, nlohmann::json::object());
-        it->second["query"]["bool"]["filter"]["terms"]["wazuh.agent.id"].push_back(agentId);
+        if (success)
+        {
+            // OpenSearch defaults `conflicts` to "abort": ONE document whose version moved between
+            // the query's search phase and its delete phase stops the whole run, and the request
+            // still answers 200 with the rest of the agent's documents left behind. "proceed" makes
+            // it skip that document and carry on -- a conflicting document is one that was just
+            // rewritten, and for a whole-agent deletion re-running the delete is the recovery.
+            it->second["conflicts"] = "proceed";
+        }
+        auto& boolQuery = it->second["query"]["bool"];
+
+        if (clusterName.empty())
+        {
+            // No cluster name: filter by agent.id only.
+            boolQuery["filter"]["terms"]["wazuh.agent.id"].push_back(agentId);
+            return;
+        }
+
+        // Filter by agent.id and cluster.name.
+        if (success)
+        {
+            nlohmann::json agentClause;
+            agentClause["terms"]["wazuh.agent.id"] = nlohmann::json::array();
+            nlohmann::json clusterClause;
+            clusterClause["term"]["wazuh.cluster.name"] = clusterName;
+            boolQuery["filter"] = nlohmann::json::array({agentClause, clusterClause});
+        }
+        boolQuery["filter"][0]["terms"]["wazuh.agent.id"].push_back(agentId);
     }
 
     void executeUpdateByQuery(const std::vector<std::string>& indices, const nlohmann::json& updateQuery)
@@ -756,10 +945,10 @@ public:
         {
             if (!isSafeIndexName(idx))
             {
-                logWarn(m_logTag.c_str(),
-                        "Skipping index '%s' for update by query: empty or contains characters outside "
-                        "[a-zA-Z0-9._*-].",
-                        idx.c_str());
+                LOGFN_WARN(m_logFn,
+                           "Skipping index '%s' for update by query: empty or contains characters outside "
+                           "[a-zA-Z0-9._*-].",
+                           idx.c_str());
                 continue;
             }
 
@@ -772,11 +961,11 @@ public:
 
         if (indexList.empty())
         {
-            logWarn(m_logTag.c_str(),
-                    "Update by query skipped: no valid indices after filtering (input had %zu entries)",
-                    indices.size());
-            // No HTTP request needed, but pending notify callbacks (e.g. unlockAgent +
-            // sendEndAck) must still fire so the session terminates cleanly. Treat the
+            LOGFN_WARN(m_logFn,
+                       "Update by query skipped: no valid indices after filtering (input had %zu entries)",
+                       indices.size());
+            // No HTTP request needed, but pending notify callbacks (e.g. unlockAgent)
+            // must still fire so the session terminates cleanly. Treat the
             // missing/filtered indices as a no-op success.
             m_shouldNotifyAfterBulk = true;
             return;
@@ -786,7 +975,7 @@ public:
 
         const auto onSuccess = [this](const std::string& response)
         {
-            logDebug2(m_logTag.c_str(), "Update by query response: %s", response.c_str());
+            LOGFN_DEBUG2(m_logFn, "Update by query response: %s", response.c_str());
 
             // Parse response to extract update statistics and check for failures
             try
@@ -797,13 +986,13 @@ public:
                 if (responseJson.contains("failures") && !responseJson["failures"].empty())
                 {
                     auto failures = responseJson["failures"];
-                    logError(m_logTag.c_str(), "Update by query completed with %zu failures", failures.size());
+                    LOGFN_WARN(m_logFn, "Update by query completed with %zu failures", failures.size());
 
                     // Log first few failures for debugging
                     size_t logCount = std::min<size_t>(failures.size(), 3);
                     for (size_t i = 0; i < logCount; ++i)
                     {
-                        logError(m_logTag.c_str(), "Failure %zu: %s", i + 1, failures[i].dump().c_str());
+                        LOGFN_DEBUG1(m_logFn, "Failure %zu: %s", i + 1, failures[i].dump().c_str());
                     }
                 }
 
@@ -816,27 +1005,28 @@ public:
 
                     if (updated > 0)
                     {
-                        logInfo(m_logTag.c_str(),
-                                "Update by query completed: %d documents updated out of %d total (%d unchanged, %zu "
-                                "failures)",
-                                updated,
-                                total,
-                                noops,
-                                failures);
+                        LOGFN_INFO(m_logFn,
+                                   "Update by query completed: %d documents updated out of %d total (%d unchanged, %zu "
+                                   "failures)",
+                                   updated,
+                                   total,
+                                   noops,
+                                   failures);
                     }
                     else
                     {
-                        logDebug2(m_logTag.c_str(),
-                                  "Update by query completed: no documents needed updating (all %d documents already "
-                                  "up-to-date, %zu failures)",
-                                  total,
-                                  failures);
+                        LOGFN_DEBUG2(
+                            m_logFn,
+                            "Update by query completed: no documents needed updating (all %d documents already "
+                            "up-to-date, %zu failures)",
+                            total,
+                            failures);
                     }
                 }
             }
             catch (const std::exception& e)
             {
-                logDebug2(m_logTag.c_str(), "Could not parse update by query response: %s", e.what());
+                LOGFN_DEBUG2(m_logFn, "Could not parse update by query response: %s", e.what());
             }
 
             m_shouldNotifyAfterBulk = true;
@@ -847,30 +1037,45 @@ public:
         {
             if (statusCode == HTTP_VERSION_CONFLICT)
             {
-                logWarn(m_logTag.c_str(),
-                        "Update by query returned 409 version conflict. This indicates documents were modified by "
-                        "another process.");
+                LOGFN_WARN(m_logFn,
+                           "Update by query returned 409 version conflict. This indicates documents were modified by "
+                           "another process.");
                 m_notify.clear();
                 throw IndexerConnectorException("Update by query version conflict");
             }
             else if (statusCode == HTTP_TOO_MANY_REQUESTS)
             {
                 needToRetry = true;
-                logDebug2(m_logTag.c_str(), "Too many requests, retrying in 1 second.");
+                LOGFN_DEBUG2(m_logFn, "Too many requests, retrying with exponential backoff.");
+            }
+            else if (statusCode <= 0)
+            {
+                // Transport-level failure (timeout, connection refused, TLS failure): retry with
+                // backoff like a 429 -- `conflicts=proceed` makes the update idempotent to re-run.
+                // Failing here instead would clear m_notify and silently drop the pending session
+                // completion callbacks.
+                needToRetry = true;
+                LOGFN_DEBUG2(
+                    m_logFn,
+                    "Transport-level failure, no HTTP status received (code %ld): %s. Retrying update by query.",
+                    statusCode,
+                    error.c_str());
             }
             else
             {
-                logError(m_logTag.c_str(), "Update by query failed: %s, status code: %ld.", error.c_str(), statusCode);
+                LOGFN_WARN(m_logFn, "Update by query failed: %s, status code: %ld.", error.c_str(), statusCode);
                 m_notify.clear();
                 throw IndexerConnectorException(error);
             }
         };
 
+        IndexerExponentialBackoff retryBackoff {std::chrono::seconds {RetryDelay},
+                                                std::chrono::seconds {m_maxRetryDelay}};
         do
         {
             if (m_stopping.load())
             {
-                logDebug2(m_logTag.c_str(), "Stopping requested, aborting update by query");
+                LOGFN_DEBUG2(m_logFn, "Stopping requested, aborting update by query");
                 m_notify.clear();
                 return;
             }
@@ -887,11 +1092,15 @@ public:
                                                    .data = updateQuery.dump(),
                                                    .secureCommunication = m_secureCommunication},
                                 PostRequestParameters {.onSuccess = onSuccess, .onError = onError},
-                                {});
+                                ConfigurationParameters {.timeout = m_requestTimeoutMs});
 
-            if (needToRetry && RetryDelay > 0)
+            if (needToRetry)
             {
-                std::this_thread::sleep_for(std::chrono::seconds(RetryDelay));
+                const auto retryDelay = retryBackoff.nextDelay();
+                LOGFN_DEBUG2(
+                    m_logFn, "Retrying update by query in %lld ms.", static_cast<long long>(retryDelay.count()));
+                std::unique_lock<std::mutex> lock(m_retryMutex);
+                m_retryCv.wait_for(lock, retryDelay, [this]() { return m_stopping.load(); });
             }
         } while (needToRetry);
     }
@@ -905,33 +1114,72 @@ public:
         }
 
         nlohmann::json resultJson;
+        bool needToRetry = false;
 
         const auto onSuccess = [this, &resultJson](const std::string& response)
         {
-            logDebug2(m_logTag.c_str(), "Search query response: %s", response.c_str());
+            LOGFN_DEBUG2(m_logFn, "Search query response: %s", response.c_str());
             resultJson = nlohmann::json::parse(response);
         };
 
-        const auto onError = [this](const std::string& error, const long statusCode, const std::string&)
+        const auto onError =
+            [this, &needToRetry](const std::string& error, const long statusCode, const std::string& responseBody)
         {
-            logError(m_logTag.c_str(), "Search query failed: %s, status code: %ld", error.c_str(), statusCode);
-            throw IndexerConnectorException("Search query failed: " + error);
+            if (statusCode == HTTP_TOO_MANY_REQUESTS)
+            {
+                needToRetry = true;
+                LOGFN_DEBUG2(m_logFn, "Search query rate-limited (429), retrying with exponential backoff.");
+            }
+            else
+            {
+                LOGFN_WARN(m_logFn, "Search query failed: %s, status code: %ld", error.c_str(), statusCode);
+                // The transport reduces every HTTP failure to "Client error"/"Server error", so
+                // without the status and (truncated) body the exception is undiagnosable AND
+                // unclassifiable -- callers must be able to tell "no such index" (an empty
+                // dataset, e.g. no Windows agent ever synced a hotfix) from a real outage.
+                std::string detail = "Search query failed (status " + std::to_string(statusCode) + "): " + error;
+                if (!responseBody.empty())
+                {
+                    detail += " - ";
+                    detail += responseBody.substr(0, 256);
+                }
+                throw IndexerConnectorException(detail);
+            }
         };
 
-        auto serverUrl = m_selector->getNext();
-        std::string url;
-        url += serverUrl;
-        url += "/";
-        url += index;
-        url += "/_search";
+        IndexerExponentialBackoff retryBackoff {std::chrono::seconds {RetryDelay},
+                                                std::chrono::seconds {m_maxRetryDelay}};
+        do
+        {
+            if (m_stopping.load())
+            {
+                throw IndexerConnectorException("Search query aborted: stopping requested");
+            }
 
-        logDebug2(m_logTag.c_str(), "Executing search query on: %s", url.c_str());
+            needToRetry = false;
+            auto serverUrl = m_selector->getNext();
+            std::string url;
+            url += serverUrl;
+            url += "/";
+            url += index;
+            url += "/_search";
 
-        m_httpRequest->post(RequestParameters {.url = HttpURL(url),
-                                               .data = searchQuery.dump(),
-                                               .secureCommunication = m_secureCommunication},
-                            PostRequestParameters {.onSuccess = onSuccess, .onError = onError},
-                            {});
+            LOGFN_DEBUG2(m_logFn, "Executing search query on: %s", url.c_str());
+
+            m_httpRequest->post(RequestParameters {.url = HttpURL(url),
+                                                   .data = searchQuery.dump(),
+                                                   .secureCommunication = m_secureCommunication},
+                                PostRequestParameters {.onSuccess = onSuccess, .onError = onError},
+                                ConfigurationParameters {.timeout = m_requestTimeoutMs});
+
+            if (needToRetry)
+            {
+                const auto retryDelay = retryBackoff.nextDelay();
+                LOGFN_DEBUG2(m_logFn, "Retrying search query in %lld ms.", static_cast<long long>(retryDelay.count()));
+                std::unique_lock<std::mutex> lock(m_retryMutex);
+                m_retryCv.wait_for(lock, retryDelay, [this]() { return m_stopping.load(); });
+            }
+        } while (needToRetry);
 
         return resultJson;
     }
@@ -958,14 +1206,14 @@ public:
             const auto itHits = searchResult.find("hits");
             if (itHits == searchResult.end())
             {
-                logDebug2(m_logTag.c_str(), "No 'hits' object in response, breaking pagination loop");
+                LOGFN_DEBUG2(m_logFn, "No 'hits' object in response, breaking pagination loop");
                 break;
             }
 
             const auto itInner = itHits->find("hits");
             if (itInner == itHits->end() || !itInner->is_array() || itInner->empty())
             {
-                logDebug2(m_logTag.c_str(), "No 'hits' array in response or it is empty, breaking pagination loop");
+                LOGFN_DEBUG2(m_logFn, "No 'hits' array in response or it is empty, breaking pagination loop");
                 break;
             }
 
@@ -974,7 +1222,7 @@ public:
             // If we got less results than requested, this is the last page
             if (currentQuery.contains("size") && hits.size() < currentQuery["size"].template get<size_t>())
             {
-                logDebug2(m_logTag.c_str(), "Fewer results than page size, breaking pagination loop");
+                LOGFN_DEBUG2(m_logFn, "Fewer results than page size, breaking pagination loop");
                 break;
             }
 
@@ -990,9 +1238,9 @@ public:
             }
             else
             {
-                logDebug2(m_logTag.c_str(),
-                          "Pagination loop finished: Last hit has no 'sort' field, it is not an array, or it is "
-                          "empty.");
+                LOGFN_DEBUG2(m_logFn,
+                             "Pagination loop finished: Last hit has no 'sort' field, it is not an array, or it is "
+                             "empty.");
                 break;
             }
         }
@@ -1069,27 +1317,25 @@ public:
                 creationTime = jsonResponse["creation_time"].get<uint64_t>();
                 success = true;
 
-                logDebug2(m_logTag.c_str(),
-                          "PIT created successfully. PIT ID: %s, Creation time: %lu",
-                          pitId.c_str(),
-                          creationTime);
+                LOGFN_DEBUG2(
+                    m_logFn, "PIT created successfully. PIT ID: %s, Creation time: %lu", pitId.c_str(), creationTime);
             }
             catch (const std::exception& e)
             {
                 errorMessage = std::string("Failed to parse PIT response: ") + e.what();
-                logDebug1(m_logTag.c_str(), "%s", errorMessage.c_str());
+                LOGFN_DEBUG1(m_logFn, "%s", errorMessage.c_str());
             }
         };
 
         const auto onError = [this, &errorMessage](const std::string& error, const long statusCode, const std::string&)
         {
             errorMessage = "Failed to create PIT. Error: " + error + ", Status code: " + std::to_string(statusCode);
-            logDebug1(m_logTag.c_str(), "%s", errorMessage.c_str());
+            LOGFN_DEBUG1(m_logFn, "%s", errorMessage.c_str());
         };
 
         m_httpRequest->post(RequestParameters {.url = HttpURL(url), .secureCommunication = m_secureCommunication},
                             PostRequestParameters {.onSuccess = onSuccess, .onError = onError},
-                            {});
+                            ConfigurationParameters {.timeout = m_requestTimeoutMs});
 
         if (!success)
         {
@@ -1116,7 +1362,7 @@ public:
 
         const auto onSuccess = [this](const std::string& response)
         {
-            logDebug2(m_logTag.c_str(), "PIT successfully deleted. Response: %s", response.c_str());
+            LOGFN_DEBUG2(m_logFn, "PIT successfully deleted. Response: %s", response.c_str());
         };
 
         const auto onError = [&pitId](const std::string& error, const long statusCode, const std::string&)
@@ -1129,7 +1375,7 @@ public:
                                                   .data = deleteBody.dump(),
                                                   .secureCommunication = m_secureCommunication},
                                PostRequestParameters {.onSuccess = onSuccess, .onError = onError},
-                               {});
+                               ConfigurationParameters {.timeout = m_requestTimeoutMs});
     }
 
     nlohmann::json search(const PointInTime& pit,
@@ -1166,12 +1412,9 @@ public:
             requestBody["search_after"] = searchAfter.value();
         }
 
-        std::string url;
-        url += m_selector->getNext();
-        url += "/_search";
-
         nlohmann::json hitsResult;
         bool success = false;
+        bool needToRetry = false;
         std::string errorMessage;
 
         const auto onSuccess = [&hitsResult, &success](const std::string& response)
@@ -1194,17 +1437,50 @@ public:
             }
         };
 
-        const auto onError = [](const std::string& error, const long statusCode, const std::string&)
+        const auto onError = [this, &needToRetry](const std::string& error, const long statusCode, const std::string&)
         {
-            throw IndexerConnectorException("Search request failed with status " + std::to_string(statusCode) + ": " +
-                                            error);
+            if (statusCode == HTTP_TOO_MANY_REQUESTS)
+            {
+                needToRetry = true;
+                LOGFN_DEBUG2(m_logFn, "Too many requests, retrying with exponential backoff.");
+            }
+            else
+            {
+                LOGFN_WARN(m_logFn, "Search request failed: %s, status code: %ld", error.c_str(), statusCode);
+                throw IndexerConnectorException("Search request failed with status " + std::to_string(statusCode) +
+                                                ": " + error);
+            }
         };
 
-        m_httpRequest->post(RequestParameters {.url = HttpURL(url),
-                                               .data = requestBody.dump(),
-                                               .secureCommunication = m_secureCommunication},
-                            PostRequestParameters {.onSuccess = onSuccess, .onError = onError},
-                            {});
+        IndexerExponentialBackoff retryBackoff {std::chrono::seconds {RetryDelay},
+                                                std::chrono::seconds {m_maxRetryDelay}};
+        do
+        {
+            if (m_stopping.load())
+            {
+                throw IndexerConnectorException("Search request aborted: stopping requested");
+            }
+
+            needToRetry = false;
+            std::string url;
+            url += m_selector->getNext();
+            url += "/_search";
+
+            m_httpRequest->post(RequestParameters {.url = HttpURL(url),
+                                                   .data = requestBody.dump(),
+                                                   .secureCommunication = m_secureCommunication},
+                                PostRequestParameters {.onSuccess = onSuccess, .onError = onError},
+                                ConfigurationParameters {.timeout = m_requestTimeoutMs});
+
+            if (needToRetry)
+            {
+                const auto retryDelay = retryBackoff.nextDelay();
+                LOGFN_DEBUG2(
+                    m_logFn, "Retrying search request in %lld ms.", static_cast<long long>(retryDelay.count()));
+                std::unique_lock<std::mutex> lock(m_retryMutex);
+                m_retryCv.wait_for(lock, retryDelay, [this]() { return m_stopping.load(); });
+            }
+        } while (needToRetry);
 
         if (!success)
         {
@@ -1218,18 +1494,14 @@ public:
     {
         if (!isSafeIndexName(index))
         {
-            logError(m_logTag.c_str(),
-                     "Refusing bulkDelete for unsafe index name '%.*s' (empty or contains characters outside "
-                     "[a-zA-Z0-9._*-]) on document '%.*s'",
-                     static_cast<int>(index.size()),
-                     index.data(),
-                     static_cast<int>(id.size()),
-                     id.data());
-            throw IndexerConnectorException("Unsafe index name");
+            throw IndexerConnectorException("bulkDelete: unsafe index name '" + std::string(index) +
+                                            "' (empty or contains characters outside [a-zA-Z0-9._*-]) on document '" +
+                                            std::string(id) + "'");
         }
 
-        if (constexpr auto FORMATTED_SIZE {DELETE_FORMATTED_LENGTH};
-            m_bulkData.length() + FORMATTED_SIZE + index.size() + id.size() > MaxBulkSize)
+        // Only flush if there is data already buffered.
+        if (const auto FORMATTED_SIZE {DELETE_FORMATTED_LENGTH};
+            !m_bulkData.empty() && m_bulkData.length() + FORMATTED_SIZE + index.size() + id.size() > m_maxBulkSize)
         {
             processBulk();
         }
@@ -1255,75 +1527,70 @@ public:
         // Validate input parameters
         if (!isSafeIndexName(index))
         {
-            logError(m_logTag.c_str(),
-                     "Refusing bulkIndex for unsafe index name '%.*s' (empty or contains characters outside "
-                     "[a-zA-Z0-9._*-]) on document '%.*s'",
-                     static_cast<int>(index.size()),
-                     index.data(),
-                     static_cast<int>(id.size()),
-                     id.data());
-            throw IndexerConnectorException("Unsafe index name");
+            throw IndexerConnectorException("bulkIndex: unsafe index name '" + std::string(index) +
+                                            "' (empty or contains characters outside [a-zA-Z0-9._*-]) on document '" +
+                                            std::string(id) + "'");
         }
 
         if (data.empty())
         {
-            logWarn(m_logTag.c_str(),
-                    "Empty data provided for document %.*s in index %.*s",
-                    static_cast<int>(id.size()),
-                    id.data(),
-                    static_cast<int>(index.size()),
-                    index.data());
+            LOGFN_WARN(m_logFn,
+                       "Empty data provided for document %.*s in index %.*s",
+                       static_cast<int>(id.size()),
+                       id.data(),
+                       static_cast<int>(index.size()),
+                       index.data());
         }
 
         const auto totalSize =
             m_bulkData.length() + FORMATTED_SIZE + VERSION_SIZE + index.size() + id.size() + data.size();
 
-        if (totalSize > MaxBulkSize)
+        // Only flush if there is data already buffered.
+        if (!m_bulkData.empty() && totalSize > m_maxBulkSize)
         {
             processBulk();
         }
-        m_bulkData.append(R"({"index":{"_index":")");
-        m_bulkData.append(index);
+
         if (!version.empty())
         {
-            // In case the version is provided, the id must be provided too
-            if (!id.empty())
+            // When version is provided, use update operation with Painless script
+            // to check state.document_version instead of OpenSearch's internal _version.
+            if (id.empty())
             {
-                m_bulkData.append(R"(","_id":")");
-                appendEscapedId(m_bulkData, id);
-            }
-            else
-            {
-                logError(m_logTag.c_str(), "Id must be provided if version value is provided");
+                LOGFN_ERROR(m_logFn, "Id must be provided if version value is provided");
                 throw IndexerConnectorException("Id must be provided if version value is provided");
             }
 
-            m_bulkData.append(R"(","version":")");
-            m_bulkData.append(version);
-            m_bulkData.append(R"(","version_type":"external_gte)");
-            logDebug2(m_logTag.c_str(),
-                      "Using external version %.*s for document %.*s",
-                      static_cast<int>(version.size()),
-                      version.data(),
-                      static_cast<int>(id.size()),
-                      id.data());
+            appendScriptedUpdate(m_bulkData, index, id, version, data);
+
+            LOGFN_DEBUG2(m_logFn,
+                         "Using document version %.*s for document %.*s (checking state.document_version)",
+                         static_cast<int>(version.size()),
+                         version.data(),
+                         static_cast<int>(id.size()),
+                         id.data());
         }
         else
         {
+            // No version provided, use standard index operation
+            m_bulkData.append(R"({"index":{"_index":")");
+            m_bulkData.append(index);
             if (!id.empty())
             {
                 m_bulkData.append(R"(","_id":")");
                 appendEscapedId(m_bulkData, id);
             }
-            logDebug2(m_logTag.c_str(),
-                      "No version specified for document %.*s, using default versioning",
-                      static_cast<int>(id.size()),
-                      id.data());
+            m_bulkData.append(R"("}})");
+            m_bulkData.append("\n");
+            m_bulkData.append(data);
+            m_bulkData.append("\n");
+
+            LOGFN_DEBUG2(m_logFn,
+                         "No version specified for document %.*s, using default versioning",
+                         static_cast<int>(id.size()),
+                         id.data());
         }
-        m_bulkData.append(R"("}})");
-        m_bulkData.append("\n");
-        m_bulkData.append(data);
-        m_bulkData.append("\n");
+
         m_boundaries.push_back(m_bulkData.size());
     }
 
@@ -1397,20 +1664,20 @@ public:
         url += "/";
         url += indexPattern;
         url += "/_refresh";
-        logDebug2(m_logTag.c_str(), "Forcing index refresh: %s", url.c_str());
+        LOGFN_DEBUG2(m_logFn, "Forcing index refresh: %s", url.c_str());
 
         const auto onSuccess = [this](const std::string& response)
         {
-            logDebug2(m_logTag.c_str(), "Index refresh response: %s", response.c_str());
+            LOGFN_DEBUG2(m_logFn, "Index refresh response: %s", response.c_str());
         };
         const auto onError = [this](const std::string& error, const long statusCode, const std::string&)
         {
-            logWarn(m_logTag.c_str(), "Index refresh failed: %s, status code: %ld", error.c_str(), statusCode);
+            LOGFN_WARN(m_logFn, "Index refresh failed: %s, status code: %ld", error.c_str(), statusCode);
         };
 
         m_httpRequest->post(RequestParameters {.url = HttpURL(url), .secureCommunication = m_secureCommunication},
                             PostRequestParameters {.onSuccess = onSuccess, .onError = onError},
-                            {});
+                            ConfigurationParameters {.timeout = m_requestTimeoutMs});
     }
 
     bool isAvailable() const

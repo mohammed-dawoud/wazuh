@@ -81,6 +81,10 @@ File contents, permissions, and ownership are preserved for the paths listed abo
 
 **Seeing new defaults.** Because `etc/` is fully preserved, new default values shipped by the package are not automatically applied to existing files. On DEB manager upgrades a `wazuh-manager.conf.new` side-file is written alongside the live config so you can compare changes manually. On RPM no equivalent side-file is generated for the preserved paths; compare against the package defaults manually if needed.
 
+The `WAZUH_REMOTE_*` installation variables described in [Installation](getting-started/installation.md) also shape that `wazuh-manager.conf.new`, so an upgrade run with them exported produces a side-file that already carries those values. If one of them holds an invalid value the side-file is not written and the upgrade reports a warning and continues: the live configuration is preserved either way.
+
+Note in particular `remote.https.global_prefix`: a preserved configuration without the tag keeps today's behavior (endpoints served unprefixed — the built-in default is `/`), while the regenerated `wazuh-manager.conf.new` carries `/wazuh-manager/`. Adopting that line from the side-file changes the URLs the manager serves **and** the request path your agents must send and sign, so only do it as part of a coordinated agent-side change.
+
 **If the upgrade fails.** Source-based upgrades attempt to restore preserved files automatically when the upgrade fails or is interrupted after the preserve step. If automatic restore fails, or if a package-based upgrade fails before restoration completes, the preserve directory is left in place for manual recovery:
 
 | Stack | Preserve directory |
@@ -301,6 +305,7 @@ Before upgrading agents:
 2. Plan upgrades in batches to avoid upgrading all agents simultaneously
 3. Test on non-production agents first
 4. Verify manager compatibility with the new agent version
+5. **Password Authentication:** Wazuh 5.0 enables password protection for agent enrollment by default. If you need to re-enroll agents during or after the upgrade, you must use the registration password. If the 5.0 manager was freshly installed, retrieve the new password using `sudo cat /var/wazuh-manager/etc/authd.pass` on the manager and apply it on the agents, or restore the old `authd.pass` file to the new manager.
 
 **Note:** Wazuh agents version 4.x and later support upgrades to version 5.x.
 
@@ -626,6 +631,11 @@ telnet <manager_ip> 1514
 
 # Verify client.keys matches manager
 # Compare key on agent with manager's client.keys entry
+
+# Check for enrollment password verification issues:
+# If you see "ERROR: Invalid password (from manager)" in /var/ossec/logs/ossec.log,
+# verify that the password in the agent's `/var/ossec/etc/authd.pass` matches
+# the manager's `/var/wazuh-manager/etc/authd.pass`.
 
 # Restart agent
 sudo systemctl restart wazuh-agent

@@ -212,6 +212,61 @@ const char* get_srcip_from_json(const cJSON *input) {
 }
 
 
+int is_valid_username(const char *username) {
+    if (!username || !*username) {
+        return 0;
+    }
+
+    // Reject reserved names
+    if (strcmp(username, "root") == 0) {
+        return 0;
+    }
+
+    size_t len = strlen(username);
+
+    // Maximum username length (typical limit is 32, but we allow up to 256 for compatibility)
+    if (len > 256) {
+        return 0;
+    }
+
+    // Must not start with dash, plus, or tilde (Debian constraint)
+    if (username[0] == '-' || username[0] == '+' || username[0] == '~') {
+        return 0;
+    }
+
+    // Check for prohibited characters
+    for (size_t i = 0; i < len; i++) {
+        char c = username[i];
+
+        // Reject colon (used as field separator in /etc/passwd)
+        if (c == ':') {
+            return 0;
+        }
+
+        // Reject comma (used in GECOS field)
+        if (c == ',') {
+            return 0;
+        }
+
+        // Reject whitespace characters
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+            return 0;
+        }
+
+        // Reject slash (breaks home directory paths)
+        if (c == '/' || c == '\\') {
+            return 0;
+        }
+    }
+
+    // Reject directory traversal sequence
+    if (strstr(username, "..") != NULL) {
+        return 0;
+    }
+
+    return 1;
+}
+
 const char* get_username_from_json(const cJSON *input) {
     cJSON *user_json = NULL;
     cJSON *username_json = NULL;
@@ -225,7 +280,14 @@ const char* get_username_from_json(const cJSON *input) {
 
     username_json = cJSON_GetObjectItem(user_json, "name");
     if (cJSON_IsString(username_json)) {
-        return username_json->valuestring;
+        const char *username = username_json->valuestring;
+
+        // Validate username format
+        if (!is_valid_username(username)) {
+            return NULL;
+        }
+
+        return username;
     }
 
     return NULL;
@@ -386,6 +448,39 @@ int isEnabledFromPattern(const char * output_buf, const char * str_pattern_1, co
     }
 
     return retVal;
+}
+
+int validate_srcip(const char *srcip) {
+    if (!srcip || srcip[0] == '\0') {
+        return OS_INVALID;
+    }
+
+    size_t len = strlen(srcip);
+    // "::" is the shortest valid literal; 45 is the longest possible IPv6 text form.
+    if (len < 2 || len > 45) {
+        return OS_INVALID;
+    }
+
+    const bool is_ipv6 = (strchr(srcip, ':') != NULL);
+
+    for (size_t i = 0; i < len; i++) {
+        const char c = srcip[i];
+        const bool is_digit = (c >= '0' && c <= '9');
+        if (is_ipv6) {
+            // IPv6: hex digits, ':' and '.' (the latter for IPv4-mapped forms like ::ffff:1.2.3.4)
+            const bool is_hex = is_digit || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+            if (!is_hex && c != ':' && c != '.') {
+                return OS_INVALID;
+            }
+        } else {
+            // IPv4: decimal digits and '.' only
+            if (!is_digit && c != '.') {
+                return OS_INVALID;
+            }
+        }
+    }
+
+    return is_ipv6 ? 6 : 4;
 }
 
 #ifndef WIN32

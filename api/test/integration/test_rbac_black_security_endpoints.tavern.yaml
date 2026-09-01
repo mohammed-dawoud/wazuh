@@ -228,13 +228,16 @@ stages:
           affected_items:
             - id: 1
             - id: 2
+            - id: 3
+            - id: 4
+            - id: 5
             - id: 100
             - id: 101
             - id: 102
             - id: 104
             - id: 105
           failed_items: []
-          total_affected_items: 7
+          total_affected_items: 10
           total_failed_items: 0
 
   - name: Get a specified rule by its id (Deny)
@@ -384,7 +387,7 @@ stages:
         Authorization: "Bearer {test_login_token}"
       method: PUT
       json:
-        password: stringA1!
+        password: stringA1!extra
     response:
       status_code: 200
       json:
@@ -406,7 +409,7 @@ stages:
         Authorization: "Bearer {test_login_token}"
       method: PUT
       json:
-        password: stringA1!
+        password: stringA1!extra
     response:
       status_code: 200
       json:
@@ -720,7 +723,7 @@ stages:
       method: POST
       json:
         username: newUser
-        password: stringA1!
+        password: stringA1!extra
     response:
       status_code: 200
       json:

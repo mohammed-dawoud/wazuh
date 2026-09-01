@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include <dlfcn.h>
 
@@ -43,6 +44,15 @@ void shutdown();
  * function loading and better error handling.
  */
 void* getLibPtr();
+
+/**
+ * @brief Check whether the shared library has been loaded.
+ * @return true if init() has been called successfully.
+ */
+inline bool isInitialized()
+{
+    return getLibPtr() != nullptr;
+}
 
 /**
  * @brief Deleted function to prevent usage without template argument.
@@ -86,7 +96,6 @@ FuncType getFunction(std::string_view name)
     return func;
 }
 
-
 /**
  * @brief Set the logger tag for the shared library.
  * @param tag The tag string to set for logging purposes.
@@ -104,6 +113,13 @@ void setLoggerTag(std::string_view tag);
  * from the shared library.
  */
 std::string getJsonIndexerCnf();
+
+/**
+ * @brief Get the cluster name and node name.
+ * @return std::pair<std::string, std::string> A pair containing the cluster name and node name.
+ * @throws std::runtime_error If the function pointers cannot be retrieved or if the functions return null.
+ */
+std::pair<std::string, std::string> getClusterNameAndNodeName();
 
 } // namespace base::libwazuhshared
 

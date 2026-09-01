@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <vector>
 #include "ipersistent_queue.hpp"
 
@@ -29,9 +30,16 @@ class IPersistentQueueStorage
         /// @param data The new message data to submit.
         virtual void submitOrCoalesce(const PersistedData& data) = 0;
 
-        /// @brief Fetches a batch of pending messages and marks them as SYNCING.
+        /// @brief Submits a batch of messages in a single transaction, applying coalescing logic
+        /// to each item. Reduces per-event transaction overhead compared to calling
+        /// submitOrCoalesce() individually.
+        /// @param batch Vector of messages to persist atomically.
+        virtual void submitBatch(const std::vector<PersistedData>& batch) = 0;
+
+        /// @brief Fetches a batch of pending messages up to a byte budget and marks them as SYNCING.
+        /// @param maxBytes Maximum estimated payload size to collect. 0 means no byte cap.
         /// @return A vector of messages now marked as SYNCING.
-        virtual std::vector<PersistedData> fetchAndMarkForSync() = 0;
+        virtual std::vector<PersistedData> fetchAndMarkForSync(size_t maxBytes = 0) = 0;
 
         /// @brief Fetches pending items without marking them for sync.
         /// @param onlyDataValues If true, only returns items with is_data_context=false

@@ -39,7 +39,7 @@
 extern cJSON* w_create_agent_add_payload(const char *name, const char *ip, const char *groups, const char *key_hash, const char *key, const char *id, authd_force_options_t *force_options);
 extern cJSON* w_create_agent_remove_payload(const char *id, const int purge);
 extern cJSON* w_create_sendsync_payload(const char *daemon_name, cJSON *message);
-extern int w_parse_agent_add_response(const char* buffer, char *err_response, char* id, char* key, const int json_format, const int exit_on_error);
+extern int w_parse_agent_add_response(const char* buffer, char *err_response, char* id, char* key, const int json_format, const int exit_on_error, int *error_code);
 extern int w_parse_agent_remove_response(const char* buffer, char *err_response, const int json_format, const int exit_on_error);
 
 #ifndef WIN32
@@ -201,11 +201,11 @@ void test_w_send_clustered_message_connection_error(void **state) {
         will_return(__wrap_external_socket_connect, -1);
 
         will_return(__wrap_strerror, "ERROR");
-        expect_string(__wrap__mwarn, formatted_msg, "Could not connect to socket 'queue/cluster/c-internal.sock': ERROR (0).");
+        expect_string(__wrap__mdebug1, formatted_msg, "Could not connect to socket 'queue/sockets/cluster-internal.sock': ERROR (0).");
     }
     expect_value_count(__wrap_sleep, seconds, 1, 9);
 
-    expect_string(__wrap__merror, formatted_msg, "Could not send message through the cluster after '10' attempts.");
+    expect_string(__wrap__mwarn, formatted_msg, "Could not send message through the cluster after '10' attempts.");
 
     assert_int_equal(w_send_clustered_message("command", "payload", response), -2);
 }
@@ -227,11 +227,11 @@ void test_w_send_clustered_message_send_error(void **state) {
         will_return(__wrap_OS_SendSecureTCPCluster, -1);
 
         will_return(__wrap_strerror, "ERROR");
-        expect_string(__wrap__mwarn, formatted_msg, "OS_SendSecureTCPCluster(): ERROR");
+        expect_string(__wrap__mdebug1, formatted_msg, "OS_SendSecureTCPCluster(): ERROR");
     }
     expect_value_count(__wrap_sleep, seconds, 1, 9);
 
-    expect_string(__wrap__merror, formatted_msg, "Could not send message through the cluster after '10' attempts.");
+    expect_string(__wrap__mwarn, formatted_msg, "Could not send message through the cluster after '10' attempts.");
 
     assert_int_equal(w_send_clustered_message(command, payload, response), -2);
 }
@@ -258,11 +258,11 @@ void test_w_send_clustered_message_recv_cluster_error_detected(void **state) {
         will_return(__wrap_OS_RecvSecureClusterTCP, recv_response);
         will_return(__wrap_OS_RecvSecureClusterTCP, -2);
 
-        expect_string(__wrap__mwarn, formatted_msg, "Cluster error detected");
+        expect_string(__wrap__mdebug1, formatted_msg, "Cluster error detected");
     }
     expect_value_count(__wrap_sleep, seconds, 1, 9);
 
-    expect_string(__wrap__merror, formatted_msg, "Could not send message through the cluster after '10' attempts.");
+    expect_string(__wrap__mwarn, formatted_msg, "Could not send message through the cluster after '10' attempts.");
 
     assert_int_equal(w_send_clustered_message(command, payload, response), -1);
 }
@@ -290,11 +290,11 @@ void test_w_send_clustered_message_recv_error(void **state) {
         will_return(__wrap_OS_RecvSecureClusterTCP, -1);
 
         will_return(__wrap_strerror, "ERROR");
-        expect_string(__wrap__mwarn, formatted_msg, "OS_RecvSecureClusterTCP(): ERROR");
+        expect_string(__wrap__mdebug1, formatted_msg, "OS_RecvSecureClusterTCP(): ERROR");
     }
     expect_value_count(__wrap_sleep, seconds, 1, 9);
 
-    expect_string(__wrap__merror, formatted_msg, "Could not send message through the cluster after '10' attempts.");
+    expect_string(__wrap__mwarn, formatted_msg, "Could not send message through the cluster after '10' attempts.");
 
     assert_int_equal(w_send_clustered_message(command, payload, response), -1);
 }
@@ -387,7 +387,7 @@ void test_w_send_clustered_message_success_after_connection_error(void **state) 
     will_return(__wrap_external_socket_connect, -1);
 
     will_return(__wrap_strerror, "ERROR");
-    expect_string(__wrap__mwarn, formatted_msg, "Could not connect to socket 'queue/cluster/c-internal.sock': ERROR (0).");
+    expect_string(__wrap__mdebug1, formatted_msg, "Could not connect to socket 'queue/sockets/cluster-internal.sock': ERROR (0).");
     expect_value(__wrap_sleep, seconds, 1);
 
     will_return(__wrap_external_socket_connect, sock_num);
@@ -424,7 +424,7 @@ void test_w_send_clustered_message_success_after_send_error(void **state) {
     will_return(__wrap_OS_SendSecureTCPCluster, -1);
 
     will_return(__wrap_strerror, "ERROR");
-    expect_string(__wrap__mwarn, formatted_msg, "OS_SendSecureTCPCluster(): ERROR");
+    expect_string(__wrap__mdebug1, formatted_msg, "OS_SendSecureTCPCluster(): ERROR");
 
     expect_value(__wrap_sleep, seconds, 1);
 
@@ -466,7 +466,7 @@ void test_w_send_clustered_message_success_after_cluster_error(void **state) {
     will_return(__wrap_OS_RecvSecureClusterTCP, recv_response);
     will_return(__wrap_OS_RecvSecureClusterTCP, -2);
 
-    expect_string(__wrap__mwarn, formatted_msg, "Cluster error detected");
+    expect_string(__wrap__mdebug1, formatted_msg, "Cluster error detected");
     expect_value(__wrap_sleep, seconds, 1);
 
     will_return(__wrap_external_socket_connect, sock_num);
@@ -508,7 +508,7 @@ void test_w_send_clustered_message_success_after_recv_error(void **state) {
     will_return(__wrap_OS_RecvSecureClusterTCP, -1);
 
     will_return(__wrap_strerror, "ERROR");
-    expect_string(__wrap__mwarn, formatted_msg, "OS_RecvSecureClusterTCP(): ERROR");
+    expect_string(__wrap__mdebug1, formatted_msg, "OS_RecvSecureClusterTCP(): ERROR");
     expect_value(__wrap_sleep, seconds, 1);
 
     will_return(__wrap_external_socket_connect, sock_num);
@@ -540,46 +540,60 @@ static void test_parse_agent_add_response(void **state) {
     char new_key[KEYSIZE+1] = { '\0' };
     int err = 0;
     char err_response[OS_MAXSTR + 1];
+    int error_code = 0;
 
     // Remove _mwarn checks
     expect_any_always(__wrap__mwarn, formatted_msg);
 
     /* Success parse */
-    err = w_parse_agent_add_response(success_response, err_response, new_id, new_key, FALSE, FALSE);
+    err = w_parse_agent_add_response(success_response, err_response, new_id, new_key, FALSE, FALSE, NULL);
     assert_int_equal(err, 0);
     assert_string_equal(new_id, "001");
     assert_string_equal(new_key, "347e2dc688148aec8544c9777ff291b8868b885");
 
-    err = w_parse_agent_add_response(success_response, err_response, new_id, NULL, FALSE, FALSE);
+    err = w_parse_agent_add_response(success_response, err_response, new_id, NULL, FALSE, FALSE, NULL);
     assert_int_equal(err, 0);
     assert_string_equal(new_id, "001");
 
-    err = w_parse_agent_add_response(success_response, err_response, NULL, new_key, FALSE, FALSE);
+    err = w_parse_agent_add_response(success_response, err_response, NULL, new_key, FALSE, FALSE, NULL);
     assert_int_equal(err, 0);
     assert_string_equal(new_key, "347e2dc688148aec8544c9777ff291b8868b885");
 
     /* Error parse */
-    err = w_parse_agent_add_response(error_response, err_response, new_id, new_key, FALSE, FALSE);
+    err = w_parse_agent_add_response(error_response, err_response, new_id, new_key, FALSE, FALSE, NULL);
     assert_int_equal(err, -1);
     assert_string_equal(err_response, "ERROR: ERROR_MESSAGE");
 
+    /* Error parse: the master's own numeric code is captured when the caller asks for it */
+    error_code = 0;
+    err = w_parse_agent_add_response(error_response, err_response, new_id, new_key, FALSE, FALSE, &error_code);
+    assert_int_equal(err, -1);
+    assert_int_equal(error_code, 9009);
+    assert_string_equal(err_response, "ERROR: ERROR_MESSAGE");
+
     /* Unknown parse */
-    err = w_parse_agent_add_response(unknown_response, err_response, new_id, new_key, FALSE, FALSE);
+    err = w_parse_agent_add_response(unknown_response, err_response, new_id, new_key, FALSE, FALSE, NULL);
     assert_int_equal(err, -2);
     assert_string_equal(err_response, "ERROR: Invalid message format");
 
+    /* Unknown parse: error_code must stay untouched on a non-business failure */
+    error_code = 0;
+    err = w_parse_agent_add_response(unknown_response, err_response, new_id, new_key, FALSE, FALSE, &error_code);
+    assert_int_equal(err, -2);
+    assert_int_equal(error_code, 0);
+
     /* Missing Data parse */
-    err = w_parse_agent_add_response(missingdata_response, err_response, new_id, new_key, FALSE, FALSE);
+    err = w_parse_agent_add_response(missingdata_response, err_response, new_id, new_key, FALSE, FALSE, NULL);
     assert_int_equal(err, -2);
     assert_string_equal(err_response, "ERROR: Invalid message format");
 
     /* Missing ID parse */
-    err = w_parse_agent_add_response(missingid_response, err_response, new_id, new_key, FALSE, FALSE);
+    err = w_parse_agent_add_response(missingid_response, err_response, new_id, new_key, FALSE, FALSE, NULL);
     assert_int_equal(err, -2);
     assert_string_equal(err_response, "ERROR: Invalid message format");
 
     /* Missing key parse */
-    err = w_parse_agent_add_response(missingkey_response, err_response, new_id, new_key, FALSE, FALSE);
+    err = w_parse_agent_add_response(missingkey_response, err_response, new_id, new_key, FALSE, FALSE, NULL);
     assert_int_equal(err, -2);
     assert_string_equal(err_response, "ERROR: Invalid message format");
 }

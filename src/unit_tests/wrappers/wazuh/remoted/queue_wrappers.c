@@ -19,11 +19,11 @@
 #include "os_net.h"
 #include "queue_wrappers.h"
 
-size_t __wrap_rem_get_qsize() {
+size_t __wrap_rem_get_input_bytes_used() {
     return mock();
 }
 
-size_t __wrap_rem_get_tsize() {
+size_t __wrap_rem_get_input_max_bytes() {
     return mock();
 }
 

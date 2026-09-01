@@ -44,7 +44,10 @@ do                                                                      \
 {                                                                       \
     try                                                                 \
     {                                                                   \
-        task();                                                         \
+        if (!m_stopping.load())                                         \
+        {                                                               \
+            task();                                                     \
+        }                                                               \
     }                                                                   \
     catch(const std::exception& ex)                                     \
     {                                                                   \
@@ -186,6 +189,22 @@ static std::string getItemChecksum(const nlohmann::json& item)
     return Utils::asciiToHex(hash.hash());
 }
 
+// Monotonic counters excluded from dbsync's diff
+// NOTE: dbsync's "ignore" only suppresses the diff/callback when ignored fields
+// are the *only* thing that changed; it also skips persisting their new value in
+// that case (see SQLiteDBEngine::syncTableRowData). These fields will hold whatever
+// value they had at the last scan that also changed a non-ignored field.
+static const std::vector<std::string> HW_IGNORED_FIELDS { "memory_free", "memory_used", "checksum" };
+static const std::vector<std::string> PROCESSES_IGNORED_FIELDS { "utime", "stime", "checksum" };
+static const std::vector<std::string> NET_IFACE_IGNORED_FIELDS
+{
+    "host_network_egress_packages", "host_network_ingress_packages",
+    "host_network_egress_errors",   "host_network_ingress_errors",
+    "host_network_egress_bytes",    "host_network_ingress_bytes",
+    "host_network_egress_drops",    "host_network_ingress_drops",
+    "checksum"
+};
+
 static std::string getItemId(const nlohmann::json& item, const std::vector<std::string>& idFields)
 {
     Utils::HashData hash;
@@ -230,6 +249,13 @@ void Syscollector::notifyChange(ReturnTypeCallback result, const nlohmann::json&
     }
     else
     {
+        // Deliberately NOT gated on m_stopping: this is the per-row DBSync callback for
+        // whichever task is currently in flight (wired up by updateChanges() for every
+        // scanX() task, called once per changed row within that task's own transaction).
+        // TRY_CATCH_TASK already guarantees no *new* task starts once m_stopping is true;
+        // gating here as well would let an already-started task report only part of its
+        // own transaction if m_stopping flips mid-transaction, which is a worse outcome
+        // than letting the in-flight task finish reporting everything it found.
         if (data.is_array())
         {
             for (const auto& item : data)
@@ -371,6 +397,15 @@ void Syscollector::updateChanges(const std::string& table,
     input["data"] = values;
     input["options"]["return_old_data"] = true;
 
+    if (table == HW_TABLE)
+    {
+        input["options"]["ignore"] = HW_IGNORED_FIELDS;
+    }
+    else if (table == NET_IFACE_TABLE)
+    {
+        input["options"]["ignore"] = NET_IFACE_IGNORED_FIELDS;
+    }
+
     txn.syncTxnRow(input);
     txn.getDeletedRows(callback);
 }
@@ -468,6 +503,11 @@ void Syscollector::init(const std::shared_ptr<ISysInfo>& spInfo,
                         const bool browserExtensions,
                         const bool notifyOnFirstScan)
 {
+    auto dbSync = std::make_unique<DBSync>(HostType::AGENT, DbEngineType::SQLITE3, dbPath, getCreateStatement(), DbManagement::PERSISTENT);
+    auto normalizer = std::make_unique<SysNormalizer>(normalizerConfigPath, normalizerType);
+
+    std::unique_lock<std::mutex> lock{m_scan_mutex};
+
     m_spInfo = spInfo;
     m_reportDiffFunction = std::move(reportDiffFunction);
     m_persistDiffFunction = std::move(persistDiffFunction);
@@ -487,11 +527,6 @@ void Syscollector::init(const std::shared_ptr<ISysInfo>& spInfo,
     m_users = users;
     m_services = services;
     m_browserExtensions = browserExtensions;
-
-    auto dbSync = std::make_unique<DBSync>(HostType::AGENT, DbEngineType::SQLITE3, dbPath, getCreateStatement(), DbManagement::PERSISTENT);
-    auto normalizer = std::make_unique<SysNormalizer>(normalizerConfigPath, normalizerType);
-
-    std::unique_lock<std::mutex> lock{m_scan_mutex};
     m_stopping = false;
 
     m_spDBSync      = std::move(dbSync);
@@ -691,7 +726,16 @@ bool Syscollector::handleNotifyDataClean()
 
 void Syscollector::quiesce()
 {
-    m_stopping = true;
+    {
+        // m_pauseMutex must be held here: pause() checks m_stopping and waits on m_pauseCv
+        // under this same mutex, so setting the flag and notifying without it would leave a
+        // window where pause() reads m_stopping as false and starts waiting right after this
+        // notify_all() fires, missing it (lost wakeup) until some other, unrelated notify
+        // (e.g. a scan/sync finishing on its own) happens to wake it instead.
+        std::lock_guard<std::mutex> lock(m_pauseMutex);
+        m_stopping = true;
+        m_pauseCv.notify_all();
+    }
     m_cv.notify_all();
 
     if (m_spSyncProtocol)
@@ -712,6 +756,28 @@ void Syscollector::quiesce()
 
 void Syscollector::releaseResources()
 {
+    // Exclude the entry points that other threads keep driving while the module tears
+    // down. The scan and sync workers are joined before this runs (see wm_syscollector.c),
+    // but query() is not: wcom's dispatcher is detached and agent-info polls it in-process,
+    // so without this lock a get_first_sync_completed query could be inside
+    // getMetadataValue() dereferencing m_spDBSync while it is reset here (issue #38203).
+    std::unique_lock<std::shared_mutex> resourcesLock(m_resourcesMutex);
+
+    // Join any in-flight asynchronous flush before the members it uses are reset.
+    // The worker runs executeFlushSync() -> synchronizeModule() on its own thread and
+    // takes no lock, so quiesce()'s waitForFlushToFinish() misses a flush accepted
+    // afterwards (flush() has no m_stopping check). Holding the exclusive lock here also
+    // stops a new flush being accepted, because flush() is only reachable through
+    // query(), which takes the lock shared.
+    //
+    // The controller is joined, not destroyed: it is created once in the constructor of
+    // this singleton, so destroying it would leave the module permanently unable to flush
+    // for the rest of the process lifetime.
+    if (m_asyncFlushController)
+    {
+        m_asyncFlushController->waitForFlushToFinish();
+    }
+
     // Explicitly release all resources to ensure clean state between tests
     // and prevent use-after-free when Syscollector singleton destructs
     // after static dependencies have already been destroyed
@@ -719,6 +785,16 @@ void Syscollector::releaseResources()
     m_spNormalizer.reset();
     m_spSyncProtocol.reset();
     m_spSyncProtocolVD.reset();
+
+    if (m_spInfo)
+    {
+        // Release this thread's per-thread resources (Windows: the hotfixes() COM
+        // context) explicitly, on this thread, before m_spInfo is destroyed and before
+        // this thread exits -- see releaseThreadResources()'s implementation for why
+        // this can no longer be left to automatic thread_local teardown at thread exit.
+        m_spInfo->releaseThreadResources();
+    }
+
     m_spInfo.reset();
 }
 
@@ -866,7 +942,7 @@ nlohmann::json Syscollector::ecsHardwareData(const nlohmann::json& originalData,
         {
             const auto& value = originalData["cpu_speed"];
 
-            if (value.is_number())
+            if (value.is_number() && value.get<double>() != 0.0)
             {
                 ret[pointer] = value.get<int64_t>();
             }
@@ -1026,7 +1102,25 @@ nlohmann::json Syscollector::ecsNetworkInterfaceData(const nlohmann::json& origi
     setJsonField(ret, originalData, "/host/network/egress/errors", "host_network_egress_errors", createFields);
     setJsonField(ret, originalData, "/host/network/egress/packets", "host_network_egress_packages", createFields);
     setJsonField(ret, originalData, "/interface/alias", "interface_alias", createFields);
-    setJsonField(ret, originalData, "/interface/mtu", "interface_mtu", createFields);
+
+    // Discard invalid MTU values: 4294967295 (UINT32_MAX) is reported by Windows and 0 by UNIX
+    // when the MTU is not available
+    if (createFields || originalData.contains("interface_mtu"))
+    {
+        const nlohmann::json::json_pointer pointer("/interface/mtu");
+
+        if (originalData.contains("interface_mtu") && originalData["interface_mtu"].is_number() &&
+                originalData["interface_mtu"].get<int64_t>() != UINT32_MAX &&
+                originalData["interface_mtu"].get<int64_t>() != 0)
+        {
+            ret[pointer] = originalData["interface_mtu"];
+        }
+        else
+        {
+            ret[pointer] = nullptr;
+        }
+    }
+
     setJsonField(ret, originalData, "/interface/name", "interface_name", createFields);
     setJsonField(ret, originalData, "/interface/state", "interface_state", createFields);
     setJsonField(ret, originalData, "/interface/type", "interface_type", createFields);
@@ -1290,7 +1384,34 @@ nlohmann::json Syscollector::ecsBrowserExtensionsData(const nlohmann::json& orig
     setJsonField(ret, originalData, "/package/enabled", "package_enabled", createFields, true);
     setJsonField(ret, originalData, "/package/from_webstore", "package_from_webstore", createFields, true);
     setJsonField(ret, originalData, "/package/id", "package_id", createFields);
-    setJsonField(ret, originalData, "/package/installed", "package_installed", createFields);
+
+    // package_installed is kept as the raw collector string through dbsync (TEXT column,
+    // compared/stored as-is) and only converted to an epoch integer here, for ECS compatibility.
+    if (createFields || originalData.contains("package_installed"))
+    {
+        const nlohmann::json::json_pointer pointer("/package/installed");
+        nlohmann::json installed;
+
+        if (originalData.contains("package_installed") && originalData["package_installed"].is_string())
+        {
+            const auto& timestampStr = originalData["package_installed"].get<std::string>();
+
+            if (!timestampStr.empty() && timestampStr != " " && timestampStr != "0")
+            {
+                try
+                {
+                    installed = std::stoll(timestampStr);
+                }
+                catch (const std::exception&)
+                {
+                    installed = nullptr;
+                }
+            }
+        }
+
+        ret[pointer] = installed;
+    }
+
     setJsonField(ret, originalData, "/package/name", "package_name", createFields);
     setJsonField(ret, originalData, "/package/path", "package_path", createFields);
     setJsonFieldArray(ret, originalData, "/package/permissions", "package_permissions", createFields);
@@ -1310,7 +1431,11 @@ nlohmann::json Syscollector::getHardwareData()
     nlohmann::json ret;
     ret[0] = m_spInfo->hardware();
     sanitizeJsonValue(ret[0]);
-    ret[0]["checksum"] = getItemChecksum(ret[0]);
+
+    auto checksumInput = ret[0];
+    checksumInput.erase("memory_free");
+    checksumInput.erase("memory_used");
+    ret[0]["checksum"] = getItemChecksum(checksumInput);
     return ret;
 }
 
@@ -1386,7 +1511,15 @@ nlohmann::json Syscollector::getNetworkData()
                 ifaceTableData["host_network_ingress_bytes"]    = item.at("host_network_ingress_bytes");
                 ifaceTableData["host_network_egress_drops"]     = item.at("host_network_egress_drops");
                 ifaceTableData["host_network_ingress_drops"]    = item.at("host_network_ingress_drops");
-                ifaceTableData["checksum"]                      = getItemChecksum(ifaceTableData);
+
+                auto ifaceChecksumInput = ifaceTableData;
+
+                for (const auto& field : NET_IFACE_IGNORED_FIELDS)
+                {
+                    ifaceChecksumInput.erase(field);
+                }
+
+                ifaceTableData["checksum"] = getItemChecksum(ifaceChecksumInput);
                 ifaceTableDataList.push_back(std::move(ifaceTableData));
 
                 if (item.find("IPv4") != item.end())
@@ -1660,11 +1793,16 @@ void Syscollector::scanProcesses()
             nlohmann::json input;
 
             sanitizeJsonValue(rawData);
-            rawData["checksum"] = getItemChecksum(rawData);
+
+            auto checksumInput = rawData;
+            checksumInput.erase("utime");
+            checksumInput.erase("stime");
+            rawData["checksum"] = getItemChecksum(checksumInput);
 
             input["table"] = PROCESSES_TABLE;
             input["data"] = nlohmann::json::array( { rawData } );
             input["options"]["return_old_data"] = true;
+            input["options"]["ignore"] = PROCESSES_IGNORED_FIELDS;
 
             txn.syncTxnRow(input);
         });
@@ -1738,30 +1876,6 @@ nlohmann::json Syscollector::getBrowserExtensionsData()
         for (auto& extension : extensions)
         {
             sanitizeJsonValue(extension);
-
-            // Convert package_installed from string to integer for ECS compatibility
-            if (extension.contains("package_installed") && extension["package_installed"].is_string())
-            {
-                try
-                {
-                    const auto& timestampStr = extension["package_installed"].get<std::string>();
-
-                    if (!timestampStr.empty() && timestampStr != " " && timestampStr != "0")
-                    {
-                        int64_t timestamp = std::stoll(timestampStr);
-                        extension["package_installed"] = timestamp;
-                    }
-                    else
-                    {
-                        extension["package_installed"] = nullptr;
-                    }
-                }
-                catch (const std::exception&)
-                {
-                    extension["package_installed"] = nullptr;
-                }
-            }
-
             extension["checksum"] = getItemChecksum(extension);
             ret.push_back(std::move(extension));
         }
@@ -1848,6 +1962,15 @@ void Syscollector::scan()
     if (isFirstScan)
     {
         m_logFunction(LOG_DEBUG, "Initial Syscollector scan starting.");
+    }
+    else
+    {
+        // This device has already completed a first scan in a previous run: whatever restarted this
+        // process (service restart, shared-config reload, upgrade) is not an enrollment, so there is no
+        // "flood of created events" risk to guard against. Restoring m_notify here, instead of waiting
+        // for this scan to finish, closes the window where a change detected before that point would be
+        // silently absorbed into the baseline (marked as known in DBSync) without ever being notified.
+        m_notify = true;
     }
 
     m_logFunction(LOG_INFO, "Starting evaluation.");
@@ -2174,12 +2297,14 @@ void Syscollector::setJsonFieldArray(nlohmann::json& target,
 }
 
 // Sync protocol methods implementation
-void Syscollector::initSyncProtocol(const std::string& moduleName, const std::string& syncDbPath, const std::string& syncDbPathVD, MQ_Functions mqFuncs, std::chrono::seconds syncEndDelay,
-                                    std::chrono::seconds timeout,
-                                    unsigned int retries,
-                                    size_t maxEps, uint32_t integrityInterval)
+void Syscollector::initSyncProtocol(const std::string& moduleName, const std::string& syncDbPath, const std::string& syncDbPathVD,
+                                    uint32_t integrityInterval)
 {
-    m_dataCleanRetries = retries;  // Same as sync retries for data clean notifications
+    // Publish the protocols under the exclusive lock so a concurrent reader taking the
+    // shared lock sees either a fully constructed protocol or none, never a half-assigned one.
+    std::unique_lock<std::shared_mutex> resourcesLock(m_resourcesMutex);
+
+    m_dataCleanRetries = 3;  // Fixed default; the transport handles HTTP-level retries.
     m_integrityIntervalValue = integrityInterval;
 
     auto logger_func = [this](modules_log_level_t level, const std::string & msg)
@@ -2195,12 +2320,12 @@ void Syscollector::initSyncProtocol(const std::string& moduleName, const std::st
     try
     {
         // Initialize regular sync protocol
-        m_spSyncProtocol = std::make_unique<AgentSyncProtocol>(moduleName, syncDbPath, mqFuncs, logger_func, syncEndDelay, timeout, retries, maxEps, nullptr);
+        m_spSyncProtocol = std::make_unique<AgentSyncProtocol>(moduleName, syncDbPath, logger_func);
         m_logFunction(LOG_DEBUG, "Syscollector sync protocol initialized successfully with database: " + syncDbPath);
 
         // Initialize VD sync protocol with different module name to avoid routing conflicts
         std::string vdModuleName = moduleName + "_vd";
-        m_spSyncProtocolVD = std::make_unique<AgentSyncProtocol>(vdModuleName, syncDbPathVD, mqFuncs, logger_func_vd, syncEndDelay, timeout, retries, maxEps, nullptr);
+        m_spSyncProtocolVD = std::make_unique<AgentSyncProtocol>(vdModuleName, syncDbPathVD, logger_func_vd);
         m_logFunction(LOG_DEBUG, "Syscollector VD sync protocol initialized successfully with database: " + syncDbPathVD + " and module name: " + vdModuleName);
 
         // Initialize schema validator factory from embedded resources
@@ -2229,7 +2354,7 @@ void Syscollector::initSyncProtocol(const std::string& moduleName, const std::st
 }
 
 // LCOV_EXCL_START
-bool Syscollector::syncModule(Mode mode)
+SyncModuleResult Syscollector::syncModule(Mode mode)
 {
     if (m_paused || m_stopping.load())
     {
@@ -2238,7 +2363,7 @@ bool Syscollector::syncModule(Mode mode)
             m_logFunction(LOG_DEBUG, "Syscollector module is paused or stopping, skipping synchronization");
         }
 
-        return false;
+        return {false, {}};
     }
 
     m_logFunction(LOG_INFO, "Starting inventory synchronization.");
@@ -2246,14 +2371,15 @@ bool Syscollector::syncModule(Mode mode)
     // RAII guard ensures m_syncing is set to false even if function exits early
     ScanGuard syncGuard(m_syncing, m_pauseCv);
 
-    bool success = true;
+    bool overallSuccess = true;
+    std::string failureReason;
 
     // Sync regular (non-VD) data
     if (m_spSyncProtocol)
     {
-        success = m_spSyncProtocol->synchronizeModule(mode, Option::SYNC);
+        SyncModuleResult result = m_spSyncProtocol->synchronizeModule(mode, Option::SYNC);
 
-        if (success)
+        if (result.success)
         {
             int64_t firstSyncCompleted = 0;
 
@@ -2262,55 +2388,119 @@ bool Syscollector::syncModule(Mode mode)
                 updateMetadataValue(SYSCOLLECTOR_FIRST_SYNC_COMPLETED_METADATA_KEY, Utils::getSecondsFromEpoch());
             }
         }
+        else
+        {
+            overallSuccess = false;
+            failureReason = result.failureReason;
+
+            if (result.stopped || m_stopping.load())
+            {
+                // Not a real failure: the sync was aborted because the module is stopping.
+                // Report it as an expected event, not a WARNING.
+                m_logFunction(LOG_INFO, "Syscollector synchronization aborted: the module is stopping.");
+            }
+            else if (result.awaitingPrerequisite)
+            {
+                // Not a real failure either: the manager hasn't synchronized this agent's groups
+                // yet, most commonly right after enrollment/restart. Expected to clear on its own.
+                m_logFunction(LOG_INFO, "Syscollector synchronization deferred: " + result.failureReason);
+            }
+            else if ((result.managerNotReady || result.localTransportUnavailable) &&
+                     result.consecutiveFailures <= SYNC_MANAGER_NOT_READY_TOLERANCE)
+            {
+                // Either the manager is not ready for this agent yet, or the local sync intake
+                // itself isn't reachable yet -- both mostly right after a restart -- and the sync
+                // has not failed enough times in a row to suspect it will not clear.
+                m_logFunction(LOG_INFO, "Syscollector synchronization deferred: " + result.failureReason +
+                              " Will retry next cycle.");
+            }
+            else if (result.managerNotReady || result.localTransportUnavailable)
+            {
+                // Neither condition has cleared for several cycles in a row.
+                m_logFunction(LOG_WARNING, "Syscollector synchronization failed " +
+                              std::to_string(result.consecutiveFailures) + " times in a row: " + result.failureReason);
+            }
+            else
+            {
+                m_logFunction(LOG_WARNING, "Syscollector synchronization failed" +
+                              (result.failureReason.empty() ? "." : ": " + result.failureReason));
+            }
+        }
     }
 
     // Check if stopping before proceeding with VD sync
     if (m_stopping.load())
     {
         m_logFunction(LOG_DEBUG, "Stop received during synchronization, skipping VD sync");
-        return false;
+        return {false, {}};
     }
 
     // Sync VD data with appropriate option based on first scan status
     if (m_spSyncProtocolVD)
     {
-        Option vdOption;
-        bool firstSyncDone = isVDFirstSyncDone();
+        SyncModuleResult vdResult = synchronizeVDTables(mode);
 
-        if (!m_vdSyncEnabled)
+        if (!vdResult.success)
         {
-            // If both packages and OS are disabled, use regular SYNC option
-            vdOption = Option::SYNC;
-            m_logFunction(LOG_DEBUG, "Using SYNC option (VD scanning disabled)");
+            overallSuccess = false;
+
+            if (failureReason.empty())
+            {
+                failureReason = vdResult.failureReason;
+            }
+
+            if (vdResult.stopped || m_stopping.load())
+            {
+                // Not a real failure: the VD sync was aborted because the module is stopping
+                m_logFunction(LOG_INFO, "Syscollector VD synchronization aborted: the module is stopping.");
+            }
+            else if (vdResult.awaitingPrerequisite)
+            {
+                // Not a real failure either: the groups the manager has to assign have not
+                // arrived yet, most commonly during the first cycle(s) after an agent restart,
+                // before the first notify round trip completes. Expected to clear on its own
+                // within the next cycle or two.
+                m_logFunction(LOG_INFO, "Syscollector VD synchronization deferred: " + vdResult.failureReason);
+            }
+            else if ((vdResult.managerNotReady || vdResult.localTransportUnavailable) &&
+                     vdResult.consecutiveFailures <= SYNC_MANAGER_NOT_READY_TOLERANCE)
+            {
+                // Either the manager is not ready for this agent yet, or the local sync intake
+                // itself isn't reachable yet -- both mostly right after a restart -- and the sync
+                // has not failed enough times in a row to suspect it will not clear.
+                m_logFunction(LOG_INFO, "Syscollector VD synchronization deferred: " + vdResult.failureReason +
+                              " Will retry next cycle.");
+            }
+            else if (vdResult.managerNotReady || vdResult.localTransportUnavailable)
+            {
+                // Neither condition has cleared for several cycles in a row.
+                m_logFunction(LOG_WARNING, "Syscollector VD synchronization failed " +
+                              std::to_string(vdResult.consecutiveFailures) + " times in a row: " + vdResult.failureReason);
+            }
+            else
+            {
+                m_logFunction(LOG_WARNING, "Syscollector VD synchronization failed" +
+                              (vdResult.failureReason.empty() ? "." : ": " + vdResult.failureReason));
+            }
         }
-        else
-        {
-            // Use VDFIRST for first scan, VDSYNC for subsequent syncs
-            vdOption = firstSyncDone ? Option::VDSYNC : Option::VDFIRST;
-        }
-
-        bool vdSuccess = m_spSyncProtocolVD->synchronizeModule(mode, vdOption);
-
-        persistVDFirstSyncIfNeeded(vdSuccess, firstSyncDone);
-
-        success = vdSuccess && success;
     }
 
-    if (success)
+    if (overallSuccess)
     {
         m_logFunction(LOG_INFO, "Syscollector synchronization process finished successfully.");
     }
-    else
-    {
-        m_logFunction(LOG_INFO, "Syscollector synchronization process failed.");
-    }
 
-    return success;
+    return {overallSuccess, std::move(failureReason)};
 }
 // LCOV_EXCL_STOP
 
 void Syscollector::persistDifference(const std::string& id, Operation operation, const std::string& index, const std::string& data, uint64_t version, bool isDataContext)
 {
+    // Serialize against releaseResources(): this entry point is driven by threads that
+    // outlive the module teardown (wcom's detached dispatcher and agent-info's in-process
+    // coordination polls), so the members it reaches must not be reset underneath it.
+    std::shared_lock<std::shared_mutex> resourcesLock(m_resourcesMutex);
+
     // VD tables: system (os), packages, hotfixes
     bool isVDTable = (index == SYSCOLLECTOR_SYNC_INDEX_SYSTEM ||
                       index == SYSCOLLECTOR_SYNC_INDEX_PACKAGES ||
@@ -2328,6 +2518,11 @@ void Syscollector::persistDifference(const std::string& id, Operation operation,
 
 bool Syscollector::parseResponseBuffer(const uint8_t* data, size_t length)
 {
+    // Serialize against releaseResources(): this entry point is driven by threads that
+    // outlive the module teardown (wcom's detached dispatcher and agent-info's in-process
+    // coordination polls), so the members it reaches must not be reset underneath it.
+    std::shared_lock<std::shared_mutex> resourcesLock(m_resourcesMutex);
+
     // Route to regular (non-VD) sync protocol only
     if (m_spSyncProtocol)
     {
@@ -2339,6 +2534,11 @@ bool Syscollector::parseResponseBuffer(const uint8_t* data, size_t length)
 
 bool Syscollector::parseResponseBufferVD(const uint8_t* data, size_t length)
 {
+    // Serialize against releaseResources(): this entry point is driven by threads that
+    // outlive the module teardown (wcom's detached dispatcher and agent-info's in-process
+    // coordination polls), so the members it reaches must not be reset underneath it.
+    std::shared_lock<std::shared_mutex> resourcesLock(m_resourcesMutex);
+
     // Route to VD sync protocol only
     if (m_spSyncProtocolVD)
     {
@@ -2383,7 +2583,7 @@ std::vector<nlohmann::json> Syscollector::fetchAllFromTable(const std::string& t
         else if (indexIt != INDEX_MAP.end())
         {
             const std::string& index = indexIt->second;
-            size_t documentLimit = m_documentLimits[index];
+            size_t documentLimit = getDocumentLimit(index);
 
             if (documentLimit > 0)
             {
@@ -2520,6 +2720,37 @@ bool Syscollector::isVDFirstSyncDone()
     int64_t vdFirstSyncCompleted = 0;
     return getMetadataValue(SYSCOLLECTOR_VD_FIRST_SYNC_COMPLETED_METADATA_KEY, vdFirstSyncCompleted)
            && vdFirstSyncCompleted > 0;
+}
+
+SyncModuleResult Syscollector::synchronizeVDTables(const Mode mode)
+{
+    Option vdOption;
+    const bool firstSyncDone = isVDFirstSyncDone();
+
+    if (!m_vdSyncEnabled)
+    {
+        // If packages, OS or hotfixes are disabled, use regular SYNC option
+        vdOption = Option::SYNC;
+        m_logFunction(LOG_DEBUG, "Using SYNC option (VD scanning disabled)");
+    }
+    else
+    {
+        // Use VDFIRST for first scan, VDSYNC for subsequent syncs
+        vdOption = firstSyncDone ? Option::VDSYNC : Option::VDFIRST;
+    }
+
+    // Sent whatever the manager's vulnerability feed is doing: the session carries the feed
+    // offset this agent last heard about (0 when it never heard one) and the manager decides
+    // from there -- 503 + Retry-After while its feed is still loading, accepted and indexed
+    // without a scan when its scanner is not running at all.
+    const SyncModuleResult vdResult = m_spSyncProtocolVD->synchronizeModule(mode, vdOption);
+
+    // Not for a call that ran no session at all: a flush landing on top of the periodic cycle
+    // is reported as a success, and recording a VD first sync for it would tell agent-info a
+    // full scan has covered this agent when nothing was sent.
+    persistVDFirstSyncIfNeeded(vdResult.success && !vdResult.sessionSkipped, firstSyncDone);
+
+    return vdResult;
 }
 
 void Syscollector::persistVDFirstSyncIfNeeded(const bool vdResult, const bool firstSyncDone)
@@ -2704,6 +2935,11 @@ void Syscollector::processVDDataContext()
 
 bool Syscollector::notifyDataClean(const std::vector<std::string>& indices)
 {
+    // Serialize against releaseResources(): this entry point is driven by threads that
+    // outlive the module teardown (wcom's detached dispatcher and agent-info's in-process
+    // coordination polls), so the members it reaches must not be reset underneath it.
+    std::shared_lock<std::shared_mutex> resourcesLock(m_resourcesMutex);
+
     if (m_spSyncProtocol)
     {
         return m_spSyncProtocol->notifyDataClean(indices);
@@ -2714,6 +2950,21 @@ bool Syscollector::notifyDataClean(const std::vector<std::string>& indices)
 
 void Syscollector::deleteDatabase()
 {
+    // Serialize against releaseResources(): this entry point is driven by threads that
+    // outlive the module teardown (wcom's detached dispatcher and agent-info's in-process
+    // coordination polls), so the members it reaches must not be reset underneath it.
+    std::shared_lock<std::shared_mutex> resourcesLock(m_resourcesMutex);
+    deleteDatabaseUnlocked();
+}
+
+void Syscollector::deleteDatabaseUnlocked()
+{
+    // The caller must already hold m_resourcesMutex. This body is split out of
+    // deleteDatabase() so deleteDisableCollectorsData(), which holds the mutex shared for
+    // its whole body, does not acquire a second shared lock on the same thread: most
+    // std::shared_mutex implementations block new readers once a writer is queued, so the
+    // nested acquisition would wait behind a pending releaseResources() or
+    // initSyncProtocol() while still holding the outer lock those writers are waiting for.
     if (m_spSyncProtocol)
     {
         m_spSyncProtocol->deleteDatabase();
@@ -2811,8 +3062,8 @@ int Syscollector::executeFlushSync()
     }
 
     // Trigger immediate synchronization to flush pending messages.
-    bool result = true;
-    bool vdResult = true;
+    SyncModuleResult result = {true, {}};
+    SyncModuleResult vdResult = {true, {}};
 
     if (m_spSyncProtocol)
     {
@@ -2821,24 +3072,10 @@ int Syscollector::executeFlushSync()
 
     if (m_spSyncProtocolVD)
     {
-        Option vdOption;
-        const bool firstSyncDone = isVDFirstSyncDone();
-
-        if (!m_vdSyncEnabled)
-        {
-            vdOption = Option::SYNC;
-        }
-        else
-        {
-            vdOption = firstSyncDone ? Option::VDSYNC : Option::VDFIRST;
-        }
-
-        vdResult = m_spSyncProtocolVD->synchronizeModule(Mode::DELTA, vdOption);
-
-        persistVDFirstSyncIfNeeded(vdResult, firstSyncDone);
+        vdResult = synchronizeVDTables(Mode::DELTA);
     }
 
-    const bool overallSuccess = result && vdResult;
+    const bool overallSuccess = result.success && vdResult.success;
 
     if (overallSuccess)
     {
@@ -2863,14 +3100,58 @@ int Syscollector::executeFlushSync()
         {
             std::string failedQueues;
 
-            if (!result && !vdResult)
+            if (!result.success && !vdResult.success)
                 failedQueues = "both syscollector and VD queues";
-            else if (!result)
+            else if (!result.success)
                 failedQueues = "syscollector queue";
             else
                 failedQueues = "VD queue";
 
-            m_logFunction(LOG_WARNING, "Syscollector flush failed: " + failedQueues);
+            std::string reason;
+
+            if (!result.success && !result.failureReason.empty())
+                reason = result.failureReason;
+
+            if (!vdResult.success && !vdResult.failureReason.empty())
+                reason += (reason.empty() ? "" : "; VD: ") + vdResult.failureReason;
+
+            const std::string reasonSuffix = reason.empty() ? "" : ": " + reason;
+
+            // A queue that failed counts as "manager not ready" only if that specific sync said so
+            // (either the manager itself, or the local sync intake being unreachable -- both share
+            // the same restart-hiccup shape); a queue that succeeded does not veto the deferral.
+            const bool allFailuresManagerNotReady =
+                (result.success   || result.managerNotReady || result.localTransportUnavailable) &&
+                (vdResult.success || vdResult.managerNotReady || vdResult.localTransportUnavailable);
+
+            // Longest manager-not-ready streak among the queues that actually failed.
+            unsigned int streak = 0;
+
+            if (!result.success && (result.managerNotReady || result.localTransportUnavailable) &&
+                    result.consecutiveFailures > streak)
+                streak = result.consecutiveFailures;
+
+            if (!vdResult.success && (vdResult.managerNotReady || vdResult.localTransportUnavailable) &&
+                    vdResult.consecutiveFailures > streak)
+                streak = vdResult.consecutiveFailures;
+
+            if (allFailuresManagerNotReady && streak <= SYNC_MANAGER_NOT_READY_TOLERANCE)
+            {
+                // The manager is not ready for this agent yet, mostly right after a restart, and the
+                // sync has not failed enough times in a row to suspect it will not clear.
+                m_logFunction(LOG_INFO, "Syscollector flush deferred: " + failedQueues + reasonSuffix +
+                              " Will retry next cycle.");
+            }
+            else if (allFailuresManagerNotReady)
+            {
+                // Not a restart hiccup any more: the manager has not been ready for several cycles.
+                m_logFunction(LOG_WARNING, "Syscollector flush failed " + std::to_string(streak) +
+                              " times in a row: " + failedQueues + reasonSuffix);
+            }
+            else
+            {
+                m_logFunction(LOG_WARNING, "Syscollector flush failed: " + failedQueues + reasonSuffix);
+            }
         }
     }
 
@@ -3042,6 +3323,11 @@ void Syscollector::unlockScanMutex()
 
 std::string Syscollector::query(const std::string& jsonQuery)
 {
+    // Serialize against releaseResources(): this entry point is driven by threads that
+    // outlive the module teardown (wcom's detached dispatcher and agent-info's in-process
+    // coordination polls), so the members it reaches must not be reset underneath it.
+    std::shared_lock<std::shared_mutex> resourcesLock(m_resourcesMutex);
+
     // Log the received query
     if (m_logFunction)
     {
@@ -4084,6 +4370,11 @@ void Syscollector::checkDisabledCollectorsIndicesWithData()
 
 bool Syscollector::notifyDisableCollectorsDataClean()
 {
+    // Serialize against releaseResources(): this entry point is driven by threads that
+    // outlive the module teardown (wcom's detached dispatcher and agent-info's in-process
+    // coordination polls), so the members it reaches must not be reset underneath it.
+    std::shared_lock<std::shared_mutex> resourcesLock(m_resourcesMutex);
+
     if (m_disabledCollectorsIndicesWithData.empty())
     {
         if (m_logFunction)
@@ -4128,6 +4419,11 @@ bool Syscollector::notifyDisableCollectorsDataClean()
 
 void Syscollector::deleteDisableCollectorsData()
 {
+    // Serialize against releaseResources(): this entry point is driven by threads that
+    // outlive the module teardown (wcom's detached dispatcher and agent-info's in-process
+    // coordination polls), so the members it reaches must not be reset underneath it.
+    std::shared_lock<std::shared_mutex> resourcesLock(m_resourcesMutex);
+
     if (m_disabledCollectorsIndicesWithData.empty())
     {
         if (m_logFunction)
@@ -4147,7 +4443,9 @@ void Syscollector::deleteDisableCollectorsData()
             m_logFunction(LOG_INFO, "All collectors are disabled. Deleting entire database.");
         }
 
-        deleteDatabase();
+        // Already holding m_resourcesMutex shared; call the non-locking body so we do not
+        // take a second shared lock on this thread (see deleteDatabaseUnlocked()).
+        deleteDatabaseUnlocked();
         m_disabledCollectorsIndicesWithData.clear();
         return;
         // LCOV_EXCL_STOP
@@ -4248,6 +4546,12 @@ void Syscollector::clearTablesForIndices(const std::vector<std::string>& indices
     }
 }
 
+size_t Syscollector::getDocumentLimit(const std::string& index)
+{
+    std::lock_guard<std::mutex> limitsLock(m_limitsMutex);
+    return m_documentLimits[index];
+}
+
 // LCOV_EXCL_START
 bool Syscollector::checkIfFullSyncRequired(const std::string& tableName)
 {
@@ -4261,7 +4565,7 @@ bool Syscollector::checkIfFullSyncRequired(const std::string& tableName)
     if (indexIt != INDEX_MAP.end())
     {
         const std::string& index = indexIt->second;
-        size_t documentLimit = m_documentLimits[index];
+        size_t documentLimit = getDocumentLimit(index);
 
         if (documentLimit > 0)
         {
@@ -4305,6 +4609,15 @@ bool Syscollector::getMetadataValue(const std::string& key, int64_t& value)
 {
     value = 0;
 
+    // Callers reach this from query(), which holds m_resourcesMutex shared, so the pointer
+    // cannot be reset underneath us. Checked anyway, as every other DBSync user in this file
+    // does: a null dereference here raises an SEH access violation on Windows, which the
+    // catch below cannot handle, and it takes the whole agent process down.
+    if (!m_spDBSync)
+    {
+        return false;
+    }
+
     auto callback = [&value](ReturnTypeCallback result, const nlohmann::json & data)
     {
         if (result == ReturnTypeCallback::SELECTED && data.contains("last_sync_time"))
@@ -4337,6 +4650,14 @@ bool Syscollector::getMetadataValue(const std::string& key, int64_t& value)
 
 bool Syscollector::updateMetadataValue(const std::string& key, int64_t value)
 {
+    // See getMetadataValue()'s identical guard above: init() can leave m_spDBSync null (e.g. a
+    // locked/unopenable db), and a null dereference here raises an SEH access violation on
+    // Windows, which the catch below cannot handle, and it takes the whole agent process down.
+    if (!m_spDBSync)
+    {
+        return false;
+    }
+
     auto emptyCallback = [](ReturnTypeCallback, const nlohmann::json&) {};
 
     try
@@ -4490,7 +4811,7 @@ void Syscollector::runRecoveryProcess()
                 // Determine if we need to filter by sync=1
                 // Only filter when document limits are configured (limit > 0)
                 // If limit == 0 (unlimited), recover all items without filtering
-                size_t documentLimit = m_documentLimits[index];
+                size_t documentLimit = getDocumentLimit(index);
                 std::string rowFilterClause;
 
                 try
@@ -4529,7 +4850,16 @@ void Syscollector::runRecoveryProcess()
                     return;
                 }
 
-                m_spSyncProtocol->clearInMemoryData();
+                // Clear the manager's index before resending: a full-replace sync is now a
+                // DataClean followed by a DELTA sync of the fresh snapshot, never Mode::FULL
+                // (which used to make the manager unconditionally deleteByQuery over a
+                // byte-capped/truncated payload and could permanently drop whatever didn't
+                // fit in that one session).
+                if (!m_spSyncProtocol->notifyDataClean({index}))
+                {
+                    m_logFunction(LOG_WARNING, "Failed to clear index " + index + " before recovery resync for table " + tableName + "; will retry later");
+                    return;
+                }
 
                 for (const auto& item : items)
                 {
@@ -4552,7 +4882,7 @@ void Syscollector::runRecoveryProcess()
 
                     if (shouldPersist)
                     {
-                        m_spSyncProtocol->persistDifferenceInMemory(
+                        m_spSyncProtocol->persistDifference(
                             calculateHashId(item, tableName),
                             Operation::CREATE,
                             index,
@@ -4562,11 +4892,11 @@ void Syscollector::runRecoveryProcess()
                     }
                 }
 
-                m_logFunction(LOG_DEBUG, "Persisted " + std::to_string(items.size()) + " recovery items in memory");
+                m_logFunction(LOG_DEBUG, "Persisted " + std::to_string(items.size()) + " recovery items");
                 m_logFunction(LOG_DEBUG, "Starting recovery synchronization...");
-                bool success = syncModule(Mode::FULL);
+                bool recoverySucceeded = syncModule(Mode::DELTA).success;
 
-                if (success)
+                if (recoverySucceeded)
                 {
                     m_logFunction(LOG_DEBUG, "Recovery completed successfully");
                 }

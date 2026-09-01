@@ -202,6 +202,8 @@ stages:
               name: cluster_readonly
             - id: 7
               name: cluster_admin
+            - id: 8
+              name: wazuh_indexer_admin
             - id: 99
               name: testing
             - id: 100
@@ -216,7 +218,7 @@ stages:
               name: normalUser
             - id: 105
               name: ossec
-          total_affected_items: 14
+          total_affected_items: 15
           total_failed_items: 0
           failed_items: []
 
@@ -311,6 +313,9 @@ stages:
           affected_items:
             - id: 1
             - id: 2
+            - id: 3
+            - id: 4
+            - id: 5
             - id: 100
             - id: 101
             - id: 102
@@ -318,7 +323,7 @@ stages:
             - id: 104
             - id: 105
           failed_items: []
-          total_affected_items: 8
+          total_affected_items: 11
           total_failed_items: 0
 
 ---
@@ -405,7 +410,7 @@ stages:
         Authorization: "Bearer {test_login_token}"
       method: PUT
       json:
-        password: stringA1!
+        password: stringA1!extra
     response:
       <<: *permission_denied
 
@@ -417,7 +422,7 @@ stages:
         Authorization: "Bearer {test_login_token}"
       method: PUT
       json:
-        password: stringA1!
+        password: stringA1!extra
     response:
       <<: *permission_denied
 
@@ -977,7 +982,7 @@ stages:
       method: POST
       json:
         username: newUser
-        password: stringA1!
+        password: stringA1!extra
     response:
       <<: *permission_denied
 

@@ -52,4 +52,18 @@ class SCAMock : public SecurityConfigurationAssessment
         {
             m_pauseMutex.unlock();
         }
+
+        /// @brief Testing helper to drive the flush path synchronously (bypasses the async controller).
+        /// @return 0 on success, -1 on error.
+        int callExecuteFlushSync()
+        {
+            return executeFlushSync();
+        }
+
+        /// @brief Whether a scan has ever completed (issue 38428's persisted
+        /// "first scan owed" tracking) -- exposed for tests.
+        bool getFirstScanCompletedForTest() const
+        {
+            return m_firstScanCompleted.load();
+        }
 };

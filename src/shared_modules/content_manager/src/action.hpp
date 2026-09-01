@@ -39,14 +39,15 @@ public:
      */
     explicit Action(std::string topicName,
                     nlohmann::json parameters,
-                    const FileProcessingCallback fileProcessingCallback)
+                    const FileProcessingCallback fileProcessingCallback,
+                    ContentUpdateCallbacks updateCallbacks = {})
         : m_actionInProgress {false}
         , m_cv {}
         , m_topicName {std::move(topicName)}
         , m_interval {0}
         , m_stopActionCondition {std::make_shared<ConditionSync>(false)}
-        , m_orchestration {
-              std::make_unique<ActionOrchestrator>(parameters, m_stopActionCondition, fileProcessingCallback)}
+        , m_orchestration {std::make_unique<ActionOrchestrator>(
+              parameters, m_stopActionCondition, fileProcessingCallback, std::move(updateCallbacks))}
     {
         m_parameters = std::move(parameters);
     }
@@ -147,7 +148,7 @@ public:
     {
         OnDemandManager::instance().addEndpoint(m_topicName,
                                                 [this](const ActionOrchestrator::UpdateData& updateData)
-                                                { this->runActionOnDemand(updateData); });
+                                                { return this->runActionOnDemand(updateData); });
     }
 
     /**
@@ -173,13 +174,17 @@ public:
      *
      * @param updateData Update orchestration data.
      */
-    void runActionOnDemand(const ActionOrchestrator::UpdateData& updateData)
+    /// @return false when an update for this topic was already in progress (the request is NOT
+    ///         run twice) -- surfaced to the on-demand caller as 409 instead of the old blind 200.
+    bool runActionOnDemand(const ActionOrchestrator::UpdateData& updateData)
     {
         logDebug2(WM_CONTENTUPDATER, "Starting on-demand action for '%s'", m_topicName.c_str());
-        if (!runActionExclusively(updateData))
+        const bool ran = runActionExclusively(updateData);
+        if (!ran)
         {
             logDebug2(WM_CONTENTUPDATER, "Action in progress for '%s', on-demand request ignored", m_topicName.c_str());
         }
+        return ran;
     }
 
     /**
@@ -191,6 +196,11 @@ public:
     {
         m_interval = interval;
         m_cv.notify_one();
+    }
+
+    uint64_t getCurrentOffset() const
+    {
+        return m_orchestration->getCurrentOffset();
     }
 
 private:

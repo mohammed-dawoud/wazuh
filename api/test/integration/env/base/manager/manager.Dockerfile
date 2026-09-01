@@ -17,6 +17,7 @@ RUN wget http://archive.ubuntu.com/ubuntu/pool/main/r/rtmpdump/librtmp1_2.4+2015
     rm -rf /var/lib/apt/lists/* && ldconfig
 
 # INSTALL MANAGER
+# Cache invalidated: WazuhLogs tag schema updated to allow parentheses in log tags (alphanumeric_symbols).
 ARG WAZUH_BRANCH
 
 ADD base/manager/supervisord.conf /etc/supervisor/conf.d/
@@ -26,8 +27,8 @@ COPY base/manager/preloaded-vars.conf /wazuh/etc/preloaded-vars.conf
 RUN /wazuh/install.sh
 RUN mkdir -p /var/wazuh-manager/etc/certs && \
     touch /var/wazuh-manager/etc/certs/root-ca.pem && \
-    touch /var/wazuh-manager/etc/certs/manager.pem && \
-    touch /var/wazuh-manager/etc/certs/manager-key.pem
+    touch /var/wazuh-manager/etc/certs/indexer-connector.pem && \
+    touch /var/wazuh-manager/etc/certs/indexer-connector-key.pem
 COPY base/manager/entrypoint.sh /scripts/entrypoint.sh
 
 # HEALTHCHECK

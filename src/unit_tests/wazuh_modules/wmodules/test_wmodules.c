@@ -15,6 +15,8 @@
 #include <cmocka.h>
 #include <time.h>
 
+#include <cJSON.h>
+
 #include "wmodules.h"
 
 static size_t echo(void * module, char * query, char ** output) {
@@ -23,16 +25,29 @@ static size_t echo(void * module, char * query, char ** output) {
     return strlen(query);
 }
 
+// Sync callback that always fails, to exercise the modulesSync() failure path.
+static int sync_fail(const char * args, size_t length) {
+    (void)args;
+    (void)length;
+    return -1;
+}
+
 static int setup_modules(void ** state) {
     static wm_context CONTEXTS[] = {
         { .name = "A", .query = echo },
         { .name = "B", .query = NULL },
+        { .name = "sca", .sync = sync_fail },
     };
 
     wmodules = calloc(1, sizeof(wmodule));
     wmodules->context = &CONTEXTS[0];
     wmodules->next = calloc(1, sizeof(wmodule));
     wmodules->next->context = &CONTEXTS[1];
+    wmodules->next->next = calloc(1, sizeof(wmodule));
+    wmodules->next->next->context = &CONTEXTS[2];
+    wmodules->next->next->tag = "sca";
+
+    wm_shutdown_requested = 0;
 
     *state = NULL;
     return 0;
@@ -40,8 +55,11 @@ static int setup_modules(void ** state) {
 
 static int teardown_modules(void ** state) {
     free(*state);
+    free(wmodules->next->next);
     free(wmodules->next);
     free(wmodules);
+
+    wm_shutdown_requested = 0;
 
     return 0;
 }
@@ -107,6 +125,92 @@ static void test_module_query_echo(void ** state) {
     assert_int_equal(n, 4);
 }
 
+// A sync command that keeps failing while the agent is running is a real error: after exhausting
+// the retries, modulesSync() must log it at ERROR level.
+static void test_modules_sync_failure_while_running(void ** state) {
+    (void)state;
+    char input[] = "sca_sync payload";
+
+    // One "not ready" debug per retry (WM_MAX_ATTEMPTS attempts after the first one).
+    expect_string(__wrap__mdebug1, formatted_msg, "WModules is not ready. Retry 1");
+    expect_string(__wrap__mdebug1, formatted_msg, "WModules is not ready. Retry 2");
+    expect_string(__wrap__mdebug1, formatted_msg, "WModules is not ready. Retry 3");
+    expect_string(__wrap__merror, formatted_msg, "At modulesSync(): Unable to sync module 'sca': (-1)");
+
+    int ret = modulesSync(input, sizeof(input));
+
+    assert_int_equal(ret, -1);
+}
+
+// The same failure during agent shutdown is expected (the module was already stopped on purpose):
+// modulesSync() must not retry and must report it at DEBUG level, not ERROR.
+static void test_modules_sync_failure_during_shutdown(void ** state) {
+    (void)state;
+    char input[] = "sca_sync payload";
+
+    wm_shutdown_requested = 1;
+
+    expect_string(__wrap__mdebug1, formatted_msg,
+                  "At modulesSync(): skipping sync for module 'sca' (-1): the agent is shutting down.");
+
+    int ret = modulesSync(input, sizeof(input));
+
+    assert_int_equal(ret, -1);
+}
+
+// docs/ref/configuration/manager/README.md documents wazuh_modules.debug,
+// wazuh_modules.max_eps, wazuh_modules.task_nice and wazuh_modules.kill_timeout
+// as "Common Internal Options", but none of them had any test coverage. They
+// are read from internal_options via getDefine_Int()/getDefine_Int_default()
+// inside wm_config() (wmodules.c), which also drives module registration and
+// ReadConfig() and so isn't a reasonable unit to exercise here. What can be
+// tested directly and in isolation is getModulesInternalOptions() (wmodules.c),
+// the pure function that reports the current value of each of those four
+// globals (wm_task_nice/wm_max_eps/wm_kill_timeout/wm_debug_level, declared
+// `extern` in wmodules.h) back out as cJSON under the exact same
+// "wazuh_modules.*" keys documented in the manager README -- this is the
+// function wmcom_dispatch()'s "getallconfig" answers with (see
+// test_wmcom.c, which stubs it out via __wrap_getModulesInternalOptions
+// instead of exercising the real implementation).
+//
+// wazuh_modules.rlimit_nofile is intentionally NOT covered here: it's read
+// directly inside main() in main.c (never assigned to a module-level global,
+// never surfaced through getModulesInternalOptions()), so there is no
+// reasonable seam to unit test it without inventing untested infrastructure
+// around main().
+static void test_get_modules_internal_options_reports_all_common_options(void ** state) {
+    (void) state;
+
+    wm_task_nice = -5;
+    wm_max_eps = 250;
+    wm_kill_timeout = 45;
+    wm_debug_level = 2;
+
+    cJSON * root = getModulesInternalOptions();
+    assert_non_null(root);
+
+    cJSON * internals = cJSON_GetObjectItem(root, "internal_options");
+    assert_non_null(internals);
+
+    cJSON * task_nice = cJSON_GetObjectItem(internals, "wazuh_modules.task_nice");
+    assert_non_null(task_nice);
+    assert_int_equal(task_nice->valueint, -5);
+
+    cJSON * max_eps = cJSON_GetObjectItem(internals, "wazuh_modules.max_eps");
+    assert_non_null(max_eps);
+    assert_int_equal(max_eps->valueint, 250);
+
+    cJSON * kill_timeout = cJSON_GetObjectItem(internals, "wazuh_modules.kill_timeout");
+    assert_non_null(kill_timeout);
+    assert_int_equal(kill_timeout->valueint, 45);
+
+    cJSON * debug = cJSON_GetObjectItem(internals, "wazuh_modules.debug");
+    assert_non_null(debug);
+    assert_int_equal(debug->valueint, 2);
+
+    cJSON_Delete(root);
+}
+
 int main() {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test_setup_teardown(test_find_module_found, setup_modules, teardown_modules),
@@ -115,6 +219,9 @@ int main() {
         cmocka_unit_test_setup_teardown(test_module_query_no_module, setup_modules, teardown_modules),
         cmocka_unit_test_setup_teardown(test_module_query_no_queries, setup_modules, teardown_modules),
         cmocka_unit_test_setup_teardown(test_module_query_echo, setup_modules, teardown_modules),
+        cmocka_unit_test_setup_teardown(test_modules_sync_failure_while_running, setup_modules, teardown_modules),
+        cmocka_unit_test_setup_teardown(test_modules_sync_failure_during_shutdown, setup_modules, teardown_modules),
+        cmocka_unit_test(test_get_modules_internal_options_reports_all_common_options),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

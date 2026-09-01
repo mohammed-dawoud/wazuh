@@ -12,28 +12,18 @@
 #include "IURLRequest.hpp"
 #include "asyncValueDispatcher.hpp"
 #include "external/nlohmann/json.hpp"
+#include "indexerBulkQueue.hpp"
 #include "indexerConnector.hpp"
-#include "keyStore.hpp"
+#include "indexerTransport.hpp"
 #include "loggerHelper.h"
 #include "reflectiveJson.hpp"
 #include "secureCommunication.hpp"
-#include "shared_modules/utils/certHelper.hpp"
 #include "simdjson.h"
-#include "threadEventDispatcher.hpp"
-#include <filesystem>
 #include <mutex>
-#include <queue>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
-
-static std::mutex G_CREDENTIAL_MUTEX;
-constexpr auto DATABASE_BASE_PATH = "queue/indexer/";
-
-constexpr auto DEFAULT_PATH {"tmp/root-ca-merged.pem"};
-constexpr auto INDEXER_COLUMN {"indexer"};
-constexpr auto USER_KEY {"username"};
-constexpr auto PASSWORD_KEY {"password"};
 
 /**
  * @brief Appends an ID to bulkData, escaping special characters if necessary
@@ -54,10 +44,9 @@ inline void appendEscapedId(std::string& bulkData, std::string_view id)
     }
 }
 
-constexpr auto HTTP_CONTENT_LENGTH {413};
 constexpr auto HTTP_VERSION_CONFLICT {409};
+constexpr auto HTTP_CONTENT_LENGTH {413};
 constexpr auto HTTP_TOO_MANY_REQUESTS {429};
-constexpr auto MINIMAL_ELEMENTS_PER_BULK {1};
 
 // Overhead is the fixed JSON scaffolding for one bulk item:
 // {"index":{"_index":"<index>","id":"<id>"}}
@@ -69,13 +58,20 @@ public:
     std::string m_payload;
     std::vector<uint64_t> m_boundaries;
     std::string m_response;
+    // Send attempt's sequence id (see IndexerBulkQueue::Processor), tagging the classification's
+    // requestBackoff()/reportHealthyResponse() verdict.
+    uint64_t m_sequence {0};
 
     IndexerResponse() = default;
 
-    explicit IndexerResponse(std::string&& payload, std::vector<uint64_t>&& boundaries, std::string&& response)
+    explicit IndexerResponse(std::string&& payload,
+                             std::vector<uint64_t>&& boundaries,
+                             std::string&& response,
+                             uint64_t sequence)
         : m_payload(std::move(payload))
         , m_boundaries(std::move(boundaries))
         , m_response(std::move(response))
+        , m_sequence(sequence)
     {
     }
 
@@ -88,146 +84,164 @@ public:
         m_payload = std::move(data.m_payload);
         m_boundaries = std::move(data.m_boundaries);
         m_response = std::move(data.m_response);
+        m_sequence = data.m_sequence;
     }
     IndexerResponse& operator=(IndexerResponse&& data) noexcept
     {
         m_payload = std::move(data.m_payload);
         m_boundaries = std::move(data.m_boundaries);
         m_response = std::move(data.m_response);
+        m_sequence = data.m_sequence;
         return *this;
     }
 };
 
-using ThreadDispatchQueue = ThreadEventDispatcher<std::string, std::function<void(std::queue<std::string>&)>>;
 using ThreadLoggerQueue = Utils::AsyncValueDispatcher<IndexerResponse, std::function<void(IndexerResponse&&)>>;
 
 template<typename TSelector,
          typename THttpRequest,
-         size_t ElementsPerBulk = 25000,
+         size_t BulkMaxBytes = (size_t {0x1} << 22),
          size_t FlushInterval = 20,
          size_t RetryDelay = 1,
-         size_t MaxSuccessCount = 5>
+         size_t MaxSuccessCount = 5,
+         size_t MaxRetryDelay = 15>
 class IndexerConnectorAsyncImpl final
 {
+    static_assert(RetryDelay > 0, "RetryDelay must be greater than 0");
+
     SecureCommunication m_secureCommunication;
     std::unique_ptr<TSelector> m_selector;
     THttpRequest* m_httpRequest;
     std::atomic<bool> m_stopping {false};
+    LogFn m_logFn;
+    std::atomic<size_t> m_clusterBlockedItemCount {0};
+    std::unique_ptr<IndexerBulkQueue> m_queue;
     std::unique_ptr<ThreadLoggerQueue> m_loggerProcessor;
-    const std::string m_queueId;
-    const std::string m_dbPath;
-    const std::string m_logTag;
     bool m_error413Logged {false};
+    bool m_loggerDropLogged {false};
     size_t m_successCount {0};
-    size_t m_maxQueueSize {0};
+    size_t m_maxQueueBytes {0};
     size_t m_flushInterval {FlushInterval};
-    std::unique_ptr<ThreadDispatchQueue> m_dispatcher;
+    size_t m_bulkMaxBytes {BulkMaxBytes};
+    size_t m_loggerQueueSize {DEFAULT_LOGGER_QUEUE_SIZE};
+    size_t m_loggerThreads {DEFAULT_LOGGER_THREADS};
+    size_t m_maxRetryDelay {MaxRetryDelay};
+    /// Fallback for 'request_timeout_seconds' when the configuration has no opinion.
+    static constexpr long DEFAULT_REQUEST_TIMEOUT_SECONDS {60};
+    /// Upper bound in milliseconds for one data request against the indexer
+    /// ('request_timeout_seconds'; 0 disables the bound).
+    long m_requestTimeoutMs {DEFAULT_REQUEST_TIMEOUT_SECONDS * 1000};
+    /// Fallback for 'monitoring_interval_seconds' when the configuration has no opinion. Kept
+    /// equal to monitoring.hpp's DEFAULT_MONITORING_INTERVAL, which this selector-agnostic
+    /// template deliberately does not include.
+    static constexpr long DEFAULT_MONITORING_INTERVAL_SECONDS {10};
 
 public:
-    ~IndexerConnectorAsyncImpl() = default;
+    static constexpr size_t DEFAULT_LOGGER_QUEUE_SIZE {8}; ///< Default cap of the error-logger queue (elements).
+    static constexpr size_t DEFAULT_LOGGER_THREADS {1};    ///< Default number of error-logger threads.
+
+    /**
+     * @brief Cheap check of the "errors" field in the head of an OpenSearch _bulk response.
+     *
+     * A bulk response starts with {"took":N,"errors":false,...}. This scans the first bytes
+     * for the "errors" key and inspects its value token, so the happy path can skip the
+     * logger queue entirely (avoiding a second life of the full payload + response).
+     * Conservative: if the field cannot be found or recognized in the head, reports true so
+     * the logger's full parse decides.
+     *
+     * @param response Raw HTTP _bulk response body.
+     * @return false only when the response head contains "errors": false; true otherwise.
+     */
+    static bool bulkResponseHasErrors(std::string_view response)
+    {
+        constexpr std::string_view KEY {"\"errors\""};
+        constexpr size_t HEAD_BYTES {256};
+
+        const auto keyPos = response.substr(0, HEAD_BYTES).find(KEY);
+        if (keyPos == std::string_view::npos)
+        {
+            return true; // conservative: let the logger parse it
+        }
+
+        auto pos = keyPos + KEY.size();
+        while (pos < response.size() && (response[pos] == ':' || response[pos] == ' ' || response[pos] == '\t' ||
+                                         response[pos] == '\n' || response[pos] == '\r'))
+        {
+            ++pos;
+        }
+        return !(pos < response.size() && response[pos] == 'f');
+    }
+
+    ~IndexerConnectorAsyncImpl()
+    {
+        m_stopping.store(true);
+        if (m_queue)
+        {
+            m_queue->stop();
+        }
+    }
 
     explicit IndexerConnectorAsyncImpl(
         const nlohmann::json& config,
         const std::function<void(const int, const char*, const char*, const int, const char*, const char*, va_list)>&
             logFunction,
-        std::string queueId,
         THttpRequest* httpRequest = nullptr,
         std::unique_ptr<TSelector> selector = nullptr,
-        std::string basePath = DATABASE_BASE_PATH,
-        std::string callerName = "")
+        std::string callerName = "",
+        std::optional<SecureCommunication> secureCommunication = std::nullopt)
         : m_httpRequest(httpRequest ? httpRequest : &THttpRequest::instance())
-        , m_queueId(std::move(queueId))
-        , m_dbPath((std::filesystem::path(std::move(basePath)) / m_queueId).string())
-        , m_logTag(callerName.empty() ? "indexer-connector" : callerName + " (indexer-connector)")
+        , m_logFn {}
     {
-        if (m_queueId.empty())
-        {
-            throw IndexerConnectorException("queueId cannot be empty: each IndexerConnectorAsync instance "
-                                            "must have a unique identifier (e.g. \"engine\", \"inventory-sync\").");
-        }
-
-        if (m_queueId.find('/') != std::string::npos || m_queueId.find('\\') != std::string::npos ||
-            m_queueId.find("..") != std::string::npos)
-        {
-            throw IndexerConnectorException(
-                "queueId must not contain path separators ('/', '\\') or traversal sequences ('..'): \"" + m_queueId +
-                "\".");
-        }
+        m_logFn = LogFn {callerName}.compose("indexer-connector");
+        // Install caller context so sub-objects (queues, dispatchers) pick up the right base tag
+        // via makeLibLogFn(). Restores the previous TL value when the constructor exits.
+        const Log::ScopedModuleLogFn guard {callerName.empty() ? LogFn {"indexer-connector"} : LogFn {callerName}};
 
         if (logFunction)
         {
             Log::assignLogFunction(logFunction);
         }
 
-        std::string caRootCertificate;
-        std::string sslCertificate;
-        std::string sslKey;
-        if (config.contains("ssl"))
-        {
-            if (config.at("ssl").contains("certificate_authorities") &&
-                !config.at("ssl").at("certificate_authorities").empty())
-            {
-                std::vector<std::string> filePaths =
-                    config.at("ssl").at("certificate_authorities").get<std::vector<std::string>>();
-                if (filePaths.size() > 1)
-                {
-                    Utils::CertHelper::mergeCaRootCertificates(filePaths, caRootCertificate, DEFAULT_PATH);
-                }
-                else
-                {
-                    if (std::filesystem::exists(filePaths.front()))
-                    {
-                        caRootCertificate = filePaths.front();
-                    }
-                    else
-                    {
-                        throw IndexerConnectorException("The CA root certificate file: '" + filePaths.front() +
-                                                        "' does not exist.");
-                    }
-                }
-            }
-            if (config.at("ssl").contains("certificate"))
-            {
-                sslCertificate = config.at("ssl").at("certificate").get_ref<const std::string&>();
-            }
-            if (config.at("ssl").contains("key"))
-            {
-                sslKey = config.at("ssl").at("key").get_ref<const std::string&>();
-            }
-        }
-
+        // `hosts` FIRST. Deliberately reordered: it used to be checked between the ssl block and the
+        // keystore read. It is the cheapest check and the most common one to fail, and doing it first
+        // means a config with no hosts never opens `queue/keystore` (RocksDB) on its way to throwing.
+        // Only observable change: with BOTH a nonexistent CA file and no hosts, the reported error is
+        // now the hosts one.
         if (!config.contains("hosts") || config.at("hosts").empty())
         {
             throw IndexerConnectorException("No hosts found in the configuration");
         }
 
-        std::lock_guard lock(G_CREDENTIAL_MUTEX);
-        static auto username = Keystore::get(INDEXER_COLUMN, USER_KEY);
-        static auto password = Keystore::get(INDEXER_COLUMN, PASSWORD_KEY);
-        if (username.empty() && password.empty())
-        {
-            username = "admin";
-            password = "admin";
-            logWarn(m_logTag.c_str(), "No username and password found in the keystore, using default values.");
-        }
-        if (username.empty())
-        {
-            username = "admin";
-            logWarn(m_logTag.c_str(), "No username found in the keystore, using default value.");
-        }
-        m_secureCommunication = SecureCommunication::builder();
-        m_secureCommunication.basicAuth(username + ":" + password)
-            .sslCertificate(sslCertificate)
-            .sslKey(sslKey)
-            .caRootCertificate(caRootCertificate);
+        // Supplied by an IndexerSession when several connectors share one; built here otherwise.
+        // Either way this connector keeps its own copy: the selector is only one of six consumers,
+        // every bulk/search request below uses it too.
+        m_secureCommunication =
+            secureCommunication ? std::move(*secureCommunication) : buildSecureCommunication(config, m_logFn);
 
-        m_selector =
-            selector ? std::move(selector) : std::make_unique<TSelector>(config.at("hosts"), 10, m_secureCommunication);
+        if (selector)
+        {
+            m_selector = std::move(selector);
+        }
+        else
+        {
+            // Health-monitor polling period, read only by whoever builds the monitor.
+            const auto monitoringInterval = config.contains("monitoring_interval_seconds") &&
+                                                    config.at("monitoring_interval_seconds").is_number_integer()
+                                                ? config.at("monitoring_interval_seconds").get<long>()
+                                                : DEFAULT_MONITORING_INTERVAL_SECONDS;
+            if (monitoringInterval < 1)
+            {
+                throw IndexerConnectorException("monitoring_interval_seconds must be >= 1");
+            }
 
-        // Read max queue size from config, default to unlimited if not specified
-        m_maxQueueSize = config.contains("max_queue_size") && config.at("max_queue_size").is_number_unsigned()
-                             ? config.at("max_queue_size").get<size_t>()
-                             : 0; // 0 means unlimited
+            m_selector = std::make_unique<TSelector>(
+                config.at("hosts"), static_cast<uint32_t>(monitoringInterval), m_secureCommunication);
+        }
+
+        // Read max queue size (in bytes) from config, default to unlimited if not specified
+        m_maxQueueBytes = config.contains("max_queue_bytes") && config.at("max_queue_bytes").is_number_unsigned()
+                              ? config.at("max_queue_bytes").get<size_t>()
+                              : 0; // 0 means unlimited
 
         // Read flush interval from config; the template parameter acts as a fallback default.
         // Accept both signed and unsigned JSON integers (nlohmann stores bare literals as signed).
@@ -235,6 +249,45 @@ public:
             config.contains("flush_interval_seconds") && config.at("flush_interval_seconds").is_number_integer()
                 ? config.at("flush_interval_seconds").get<size_t>()
                 : FlushInterval;
+
+        m_bulkMaxBytes = config.contains("bulk_max_bytes") && config.at("bulk_max_bytes").is_number_integer()
+                             ? config.at("bulk_max_bytes").get<size_t>()
+                             : BulkMaxBytes;
+
+        m_maxRetryDelay =
+            config.contains("max_retry_delay_seconds") && config.at("max_retry_delay_seconds").is_number_integer()
+                ? config.at("max_retry_delay_seconds").get<size_t>()
+                : MaxRetryDelay;
+        if (m_maxRetryDelay < RetryDelay)
+        {
+            throw IndexerConnectorException("max_retry_delay_seconds must be >= the base retry delay");
+        }
+
+        m_requestTimeoutMs =
+            config.contains("request_timeout_seconds") && config.at("request_timeout_seconds").is_number_integer()
+                ? config.at("request_timeout_seconds").get<long>() * 1000
+                : m_requestTimeoutMs;
+        if (m_requestTimeoutMs < 0)
+        {
+            throw IndexerConnectorException("request_timeout_seconds must be >= 0 (0 disables the bound)");
+        }
+
+        // Error-logger sizing: bounded queue (elements) and thread count. Only responses whose
+        // bulk reported errors are enqueued (see onSuccess), so small defaults suffice.
+        m_loggerQueueSize = config.contains("logger_queue_size") && config.at("logger_queue_size").is_number_integer()
+                                ? config.at("logger_queue_size").get<size_t>()
+                                : DEFAULT_LOGGER_QUEUE_SIZE;
+        m_loggerThreads = config.contains("logger_threads") && config.at("logger_threads").is_number_integer()
+                              ? config.at("logger_threads").get<size_t>()
+                              : DEFAULT_LOGGER_THREADS;
+        if (m_loggerQueueSize == 0)
+        {
+            m_loggerQueueSize = DEFAULT_LOGGER_QUEUE_SIZE;
+        }
+        if (m_loggerThreads == 0)
+        {
+            m_loggerThreads = DEFAULT_LOGGER_THREADS;
+        }
 
         m_loggerProcessor = std::make_unique<ThreadLoggerQueue>(
             [this](const IndexerResponse& data)
@@ -246,7 +299,7 @@ public:
                 if (auto parseResult = parser.parse(data.m_response).get(parsedResponse);
                     parseResult != simdjson::SUCCESS)
                 {
-                    logDebug2(m_logTag.c_str(), "Failed to parse the indexer response %s", data.m_response.c_str());
+                    LOGFN_DEBUG2(m_logFn, "Failed to parse the indexer response %s", data.m_response.c_str());
                     return;
                 }
 
@@ -255,6 +308,7 @@ public:
                     parsedResponse["errors"].get(errorsElement) != simdjson::SUCCESS ||
                     !errorsElement.get_bool().value_unsafe())
                 {
+                    m_queue->reportHealthyResponse(data.m_sequence);
                     return;
                 }
 
@@ -262,16 +316,18 @@ public:
                 simdjson::dom::array itemsArray;
                 if (parsedResponse["items"].get_array().get(itemsArray) != simdjson::SUCCESS)
                 {
+                    m_queue->reportHealthyResponse(data.m_sequence);
                     return;
                 }
 
                 const size_t itemsSize = itemsArray.size();
                 if (data.m_boundaries.size() != itemsSize)
                 {
-                    logWarn(m_logTag.c_str(),
-                            "Mismatch between the number of events (%zu) and response items (%zu)",
-                            data.m_boundaries.size(),
-                            itemsSize);
+                    LOGFN_WARN(m_logFn,
+                               "Mismatch between the number of events (%zu) and response items (%zu)",
+                               data.m_boundaries.size(),
+                               itemsSize);
+                    m_queue->reportHealthyResponse(data.m_sequence);
                     return;
                 }
 
@@ -281,11 +337,13 @@ public:
 
                 // Process items with optimized iteration
                 size_t itemIndex = 0;
+                size_t clusterBlockedCount = 0;
                 for (const auto& item : itemsArray)
                 {
-                    // Try to find the operation element (could be "index", "create")
+                    // Try to find the operation element (could be "index", "create", "delete")
                     simdjson::dom::element operationElement;
                     bool foundOperation = false;
+                    bool isDelete = false;
 
                     if (item["index"].get(operationElement) == simdjson::SUCCESS)
                     {
@@ -294,6 +352,11 @@ public:
                     else if (item["create"].get(operationElement) == simdjson::SUCCESS)
                     {
                         foundOperation = true;
+                    }
+                    else if (item["delete"].get(operationElement) == simdjson::SUCCESS)
+                    {
+                        foundOperation = true;
+                        isDelete = true;
                     }
 
                     if (!foundOperation)
@@ -326,6 +389,15 @@ public:
                         errorType = typeElement.get_string().value_unsafe();
                     }
 
+                    // Expected, recoverable condition (cluster refusing writes) - tally instead of
+                    // logging per document; back off once per batch below.
+                    if (errorType == "cluster_block_exception")
+                    {
+                        ++clusterBlockedCount;
+                        ++itemIndex;
+                        continue;
+                    }
+
                     // Extract caused_by information if available
                     simdjson::dom::element causedByElement;
                     if (errorElement["caused_by"].get(causedByElement) == simdjson::SUCCESS)
@@ -353,42 +425,65 @@ public:
                     // Build error message with caused_by info if available
                     if (!causedByReason.empty() && !causedByType.empty())
                     {
-                        logWarn(m_logTag.c_str(),
-                                "Error indexing document (type %.*s - reason: '%.*s' - caused by: %.*s - '%.*s') - "
-                                "Associated event: %.*s",
-                                static_cast<int>(errorType.size()),
-                                errorType.data(),
-                                static_cast<int>(errorReason.size()),
-                                errorReason.data(),
-                                static_cast<int>(causedByType.size()),
-                                causedByType.data(),
-                                static_cast<int>(causedByReason.size()),
-                                causedByReason.data(),
-                                static_cast<int>(payload.size()),
-                                payload.data());
+                        LOGFN_WARN(m_logFn,
+                                   "Error %s document (type %.*s - reason: '%.*s' - caused by: %.*s - '%.*s') - "
+                                   "Associated event: %.*s",
+                                   isDelete ? "deleting" : "indexing",
+                                   static_cast<int>(errorType.size()),
+                                   errorType.data(),
+                                   static_cast<int>(errorReason.size()),
+                                   errorReason.data(),
+                                   static_cast<int>(causedByType.size()),
+                                   causedByType.data(),
+                                   static_cast<int>(causedByReason.size()),
+                                   causedByReason.data(),
+                                   static_cast<int>(payload.size()),
+                                   payload.data());
                     }
                     else
                     {
-                        logWarn(m_logTag.c_str(),
-                                "Error indexing document (type %.*s - reason: '%.*s') - Associated event: %.*s",
-                                static_cast<int>(errorType.size()),
-                                errorType.data(),
-                                static_cast<int>(errorReason.size()),
-                                errorReason.data(),
-                                static_cast<int>(payload.size()),
-                                payload.data());
+                        LOGFN_WARN(m_logFn,
+                                   "Error %s document (type %.*s - reason: '%.*s') - Associated event: %.*s",
+                                   isDelete ? "deleting" : "indexing",
+                                   static_cast<int>(errorType.size()),
+                                   errorType.data(),
+                                   static_cast<int>(errorReason.size()),
+                                   errorReason.data(),
+                                   static_cast<int>(payload.size()),
+                                   payload.data());
                     }
 
                     ++itemIndex;
                 }
-            });
 
-        m_dispatcher = std::make_unique<ThreadDispatchQueue>(
-            [this](std::queue<std::string>& dataQueue)
+                if (clusterBlockedCount > 0)
+                {
+                    const auto totalBlocked =
+                        m_clusterBlockedItemCount.fetch_add(clusterBlockedCount, std::memory_order_relaxed) +
+                        clusterBlockedCount;
+                    LOGFN_WARN(m_logFn,
+                               "Index write(s) blocked by the cluster (cluster_block_exception) - %zu document(s) "
+                               "in this batch (%zu total) not indexed due to this expected condition. Backing off "
+                               "future sends.",
+                               clusterBlockedCount,
+                               totalBlocked);
+                    m_queue->requestBackoff(data.m_sequence);
+                }
+                else
+                {
+                    // Errors present but none were cluster_block_exception.
+                    m_queue->reportHealthyResponse(data.m_sequence);
+                }
+            },
+            static_cast<unsigned int>(m_loggerThreads),
+            m_loggerQueueSize);
+
+        m_queue = std::make_unique<IndexerBulkQueue>(
+            [this](uint64_t sequence, std::vector<std::string>& dataQueue)
             {
                 if (m_stopping.load())
                 {
-                    logDebug2(m_logTag.c_str(), "IndexerConnector is stopping, event processing will be skipped.");
+                    LOGFN_DEBUG2(m_logFn, "IndexerConnector is stopping, event processing will be skipped.");
                     throw IndexerConnectorException("IndexerConnector is stopping, event processing will be skipped.");
                 }
 
@@ -399,20 +494,18 @@ public:
                 const auto bulkSize = dataQueue.size();
                 boundaries.reserve(bulkSize);
 
-                while (!dataQueue.empty())
+                for (auto& item : dataQueue)
                 {
                     boundaries.push_back(bulkData.size());
-                    bulkData.append(dataQueue.front());
-
-                    dataQueue.pop();
+                    bulkData.append(item);
                 }
 
-                const auto onSuccess = [this, &bulkData, &boundaries](std::string&& response)
+                const auto onSuccess = [this, &bulkData, &boundaries, sequence](std::string&& response)
                 {
-                    if (m_dispatcher->bulkSize() != ElementsPerBulk && m_successCount == MaxSuccessCount)
+                    if (m_queue->bulkMaxBytes() != m_bulkMaxBytes && m_successCount == MaxSuccessCount)
                     {
-                        logDebug2(m_logTag.c_str(), "Resetting bulk size to %zu.", ElementsPerBulk);
-                        m_dispatcher->bulkSize(ElementsPerBulk);
+                        LOGFN_DEBUG2(m_logFn, "Resetting bulk max bytes to %zu.", m_bulkMaxBytes);
+                        m_queue->bulkMaxBytes(m_bulkMaxBytes);
                         m_error413Logged = false;
                     }
 
@@ -420,95 +513,116 @@ public:
                     {
                         m_successCount++;
                     }
-                    IndexerResponse responseData(std::move(bulkData), std::move(boundaries), std::move(response));
-                    m_loggerProcessor->push(std::move(responseData));
-                    // Dispatch to error logger.
+
+                    // Fast path: when the bulk head reports "errors":false there is nothing to
+                    // log — drop payload and response right here instead of parking a full copy
+                    // of both in the logger queue (the main RSS driver under sustained load).
+                    if (!bulkResponseHasErrors(response))
+                    {
+                        m_queue->reportHealthyResponse(sequence);
+                        return;
+                    }
+
+                    // Dispatch to error logger (bounded queue: drop + warn when it is full).
+                    IndexerResponse responseData(
+                        std::move(bulkData), std::move(boundaries), std::move(response), sequence);
+                    if (m_loggerProcessor->push(std::move(responseData)))
+                    {
+                        m_loggerDropLogged = false;
+                    }
+                    else if (!m_loggerDropLogged)
+                    {
+                        m_loggerDropLogged = true;
+                        LOGFN_WARN(m_logFn,
+                                   "Indexer error-logger queue is full (%zu elements): bulk error details dropped. "
+                                   "Increase 'logger_queue_size' to keep them.",
+                                   m_loggerQueueSize);
+                    }
                 };
 
-                const auto onError = [this, &bulkData, bulkSize](const std::string& error,
-                                                                 const long statusCode,
-                                                                 const std::string& responseBody)
+                const auto onError =
+                    [this, &bulkData](const std::string& error, const long statusCode, const std::string& responseBody)
                 {
-                    logError(
-                        m_logTag.c_str(), "Chunk processing failed: %s, status code: %ld", error.c_str(), statusCode);
                     if (statusCode == HTTP_CONTENT_LENGTH)
                     {
-                        logDebug2(m_logTag.c_str(), "Received 413 error (Payload Too Large). Splitting bulk data.");
-                        if (const size_t currentOperations = bulkData.size(); currentOperations <= 1)
+                        constexpr size_t MINIMAL_BULK_BYTES {4096};
+                        LOGFN_DEBUG2(m_logFn, "Received 413 error (Payload Too Large). Reducing bulk threshold.");
+                        const auto currentBulkMax = m_queue->bulkMaxBytes();
+                        const auto halved = currentBulkMax / 2;
+
+                        if (halved < MINIMAL_BULK_BYTES)
                         {
-                            logError(m_logTag.c_str(),
-                                     "Unable to send data even with single operation. "
-                                     "Consider increasing http.max_content_length in OpenSearch settings. "
-                                     "Current data size: %zu bytes.",
-                                     bulkData.size());
+                            // The batch cannot be shrunk any further without going below a sane minimum,
+                            // so it can never fit. Log loudly (once) and drop it instead of throwing:
+                            // throwing here would make the queue requeue and retry this same batch
+                            // forever, since it will never become small enough to succeed.
+                            if (!m_error413Logged)
+                            {
+                                m_error413Logged = true;
+                                LOGFN_WARN(m_logFn,
+                                           "Bulk threshold too small to halve further (%zu bytes). "
+                                           "Review 'http.max_content_length' in wazuh-indexer settings. "
+                                           "Current payload size: %zu bytes. Discarding this batch.",
+                                           currentBulkMax,
+                                           bulkData.size());
+                            }
+                            // Do not throw, avoid infinite retry loop. Drop this batch and continue with the next.
+                            return;
                         }
                         else
                         {
-                            if (bulkSize / 2 < MINIMAL_ELEMENTS_PER_BULK)
-                            {
-                                // If the bulk size is too small, log an error and throw an exception.
-                                // This error will be fixed by the user by increasing the http.max_content_length
-                                // value in the wazuh-indexer settings.
-                                if (m_error413Logged == false)
-                                {
-                                    m_error413Logged = true;
-                                    logError(m_logTag.c_str(),
-                                             "The amount of elements to process is too small, review the "
-                                             "'http.max_content_length' value in "
-                                             "the wazuh-indexer settings. Current data size: %llu.",
-                                             bulkData.size());
-                                }
-
-                                throw IndexerConnectorException(
-                                    "The amount of elements to process is too small, review the "
-                                    "'http.max_content_length' value in "
-                                    "the wazuh-indexer settings.");
-                            }
-                            else
-                            {
-                                logDebug2(m_logTag.c_str(),
-                                          "Reducing the elements to be sent to the indexer: %llu.",
-                                          bulkSize / 2);
-                                this->m_dispatcher->bulkSize(bulkSize / 2);
-                                m_successCount = 0;
-                                throw IndexerConnectorException(
-                                    "Bulk size is too large, reducing the elements to be sent to the "
-                                    "indexer.");
-                            }
+                            LOGFN_DEBUG2(m_logFn, "Reducing bulk max bytes from %zu to %zu.", currentBulkMax, halved);
+                            this->m_queue->bulkMaxBytes(halved);
+                            m_successCount = 0;
+                            throw IndexerConnectorException("Bulk payload too large, reducing threshold.");
                         }
                     }
                     else if (statusCode == HTTP_VERSION_CONFLICT)
                     {
-                        logDebug2(m_logTag.c_str(), "Document version conflict, retrying in 1 second.");
+                        LOGFN_DEBUG2(m_logFn, "Document version conflict, retrying with exponential backoff.");
                         throw IndexerConnectorException(error);
                     }
                     else if (statusCode == HTTP_TOO_MANY_REQUESTS)
                     {
-                        logDebug2(m_logTag.c_str(), "Too many requests, retrying in 1 second.");
+                        LOGFN_DEBUG2(m_logFn, "Too many requests, retrying with exponential backoff.");
+                        throw IndexerConnectorException(error);
+                    }
+                    else if (statusCode <= 0)
+                    {
+                        // No HTTP response at all (timeout, connection refused, TLS failure):
+                        // Discarding here would turn every transient outage into silent data loss.
+                        LOGFN_DEBUG2(m_logFn,
+                                     "Transport-level failure, no HTTP status received (code %ld): %s. "
+                                     "Requeueing the batch for retry.",
+                                     statusCode,
+                                     error.c_str());
                         throw IndexerConnectorException(error);
                     }
                     else
                     {
-                        logError(m_logTag.c_str(), "%s, status code: %ld.", error.c_str(), statusCode);
+                        LOGFN_WARN(m_logFn,
+                                   "%s, status code: %ld. Discarding event(s) in this batch.",
+                                   error.c_str(),
+                                   statusCode);
                     }
                 };
 
                 std::string url;
                 url = m_selector->getNext();
                 url += "/_bulk";
-                logDebug2(m_logTag.c_str(), "Bulk data: %s", bulkData.c_str());
+                LOGFN_DEBUG2(m_logFn, "Bulk data: %s", bulkData.c_str());
 
                 m_httpRequest->post(RequestParameters {.url = HttpURL(url),
                                                        .data = bulkData,
                                                        .secureCommunication = m_secureCommunication},
                                     PostRequestParametersRValue {.onSuccess = onSuccess, .onError = onError},
-                                    {});
+                                    ConfigurationParameters {.timeout = m_requestTimeoutMs});
             },
-            m_dbPath,
-            ElementsPerBulk,
-            m_maxQueueSize,
+            m_maxQueueBytes,
+            m_bulkMaxBytes,
+            m_flushInterval,
             RetryDelay,
-            m_flushInterval);
+            m_maxRetryDelay);
     }
 
     void bulkIndex(std::string_view id, std::string_view index, std::string_view data)
@@ -525,21 +639,19 @@ public:
         // Validate input parameters
         if (index.empty())
         {
-            logError(m_logTag.c_str(),
-                     "Index name cannot be empty for document: %.*s",
-                     static_cast<int>(id.size()),
-                     id.data());
+            LOGFN_ERROR(
+                m_logFn, "Index name cannot be empty for document: %.*s", static_cast<int>(id.size()), id.data());
             throw IndexerConnectorException("Index name cannot be empty");
         }
 
         if (data.empty())
         {
-            logWarn(m_logTag.c_str(),
-                    "Empty data provided for document %.*s in index %.*s",
-                    static_cast<int>(id.size()),
-                    id.data(),
-                    static_cast<int>(index.size()),
-                    index.data());
+            LOGFN_WARN(m_logFn,
+                       "Empty data provided for document %.*s in index %.*s",
+                       static_cast<int>(id.size()),
+                       id.data(),
+                       static_cast<int>(index.size()),
+                       index.data());
         }
 
         std::string bulkData;
@@ -557,19 +669,19 @@ public:
             }
             else
             {
-                logError(m_logTag.c_str(), "Id must be provided if version value is provided");
+                LOGFN_ERROR(m_logFn, "Id must be provided if version value is provided");
                 throw IndexerConnectorException("Id must be provided if version value is provided");
             }
 
             bulkData.append(R"(","version":")");
             bulkData.append(version);
             bulkData.append(R"(","version_type":"external_gte)");
-            logDebug2(m_logTag.c_str(),
-                      "Using external version %.*s for document %.*s",
-                      static_cast<int>(version.size()),
-                      version.data(),
-                      static_cast<int>(id.size()),
-                      id.data());
+            LOGFN_DEBUG2(m_logFn,
+                         "Using external version %.*s for document %.*s",
+                         static_cast<int>(version.size()),
+                         version.data(),
+                         static_cast<int>(id.size()),
+                         id.data());
         }
         else
         {
@@ -578,16 +690,65 @@ public:
                 bulkData.append(R"(","_id":")");
                 appendEscapedId(bulkData, id);
             }
-            logDebug2(m_logTag.c_str(),
-                      "No version specified for document %.*s, using default versioning",
-                      static_cast<int>(id.size()),
-                      id.data());
+            LOGFN_DEBUG2(m_logFn,
+                         "No version specified for document %.*s, using default versioning",
+                         static_cast<int>(id.size()),
+                         id.data());
         }
         bulkData.append(R"("}})");
         bulkData.append("\n");
         bulkData.append(data);
         bulkData.append("\n");
-        m_dispatcher->push(bulkData);
+        m_queue->push(std::move(bulkData));
+    }
+
+    /**
+     * @brief Queue a delete of ONE document by id, into the same bulk queue as bulkIndex().
+     *
+     * The queue is the point. It is FIFO, and a batch that fails is pushed back to its FRONT, so a
+     * delete queued after an index of the same document is applied after it -- in the same bulk or
+     * a later one, never before. A caller that has to remove a document whose own earlier index()
+     * may still be sitting in this queue cannot get that ordering any other way: a delete issued
+     * through a different connector races the queue, and a `_delete_by_query` would not even see an
+     * unrefreshed document.
+     *
+     * Deleting a document that is not there is not an error: the item comes back `404`
+     * ("result": "not_found") with no `error` element, and the response handler above only inspects
+     * `index`/`create` items, so it is ignored. That makes repeating a delete free.
+     */
+    void bulkDelete(std::string_view id, std::string_view index)
+    {
+        constexpr auto FORMATTED_SIZE {24}; // {"delete":{"_index":"","_id":""}} + newline
+        constexpr auto ID_SIZE {64};
+
+        if (index.empty())
+        {
+            LOGFN_ERROR(
+                m_logFn, "Index name cannot be empty for document: %.*s", static_cast<int>(id.size()), id.data());
+            throw IndexerConnectorException("Index name cannot be empty");
+        }
+
+        if (id.empty())
+        {
+            // A delete action without an `_id` is not a no-op, it is a malformed bulk item that
+            // would fail the whole request. There is no by-query form here on purpose.
+            LOGFN_ERROR(m_logFn,
+                        "Document id cannot be empty for a delete in index %.*s",
+                        static_cast<int>(index.size()),
+                        index.data());
+            throw IndexerConnectorException("Document id cannot be empty for a delete");
+        }
+
+        std::string bulkData;
+        bulkData.reserve(index.size() + ID_SIZE + FORMATTED_SIZE);
+
+        bulkData.append(R"({"delete":{"_index":")");
+        bulkData.append(index);
+        bulkData.append(R"(","_id":")");
+        appendEscapedId(bulkData, id);
+        bulkData.append(R"("}})");
+        bulkData.append("\n");
+        m_queue->push(std::move(bulkData));
     }
 
     void bulkIndexDataStream(std::string_view index, std::string_view data)
@@ -614,7 +775,7 @@ public:
         bulkData.append("\n");
         bulkData.append(data);
         bulkData.append("\n");
-        m_dispatcher->push(bulkData);
+        m_queue->push(std::move(bulkData));
     }
 
     bool isAvailable() const
@@ -624,12 +785,12 @@ public:
 
     uint64_t getQueueSize() const
     {
-        return m_dispatcher->size();
+        return m_queue->byteSize();
     }
 
     uint64_t getDroppedEvents() const
     {
-        return m_dispatcher->getDroppedEvents();
+        return m_queue->droppedEvents();
     }
 
     PointInTime
@@ -712,15 +873,13 @@ public:
                 creationTime = jsonResponse["creation_time"].get<uint64_t>();
                 success = true;
 
-                logDebug2(m_logTag.c_str(),
-                          "PIT created successfully. PIT ID: %s, Creation time: %lu",
-                          pitId.c_str(),
-                          creationTime);
+                LOGFN_DEBUG2(
+                    m_logFn, "PIT created successfully. PIT ID: %s, Creation time: %lu", pitId.c_str(), creationTime);
             }
             catch (const std::exception& e)
             {
                 errorMessage = std::string("Failed to parse PIT response: ") + e.what();
-                logDebug1(m_logTag.c_str(), "%s", errorMessage.c_str());
+                LOGFN_DEBUG1(m_logFn, "%s", errorMessage.c_str());
             }
         };
 
@@ -729,13 +888,13 @@ public:
         {
             errorMessage = "Failed to create PIT. Error: " + error + ", Status code: " + std::to_string(statusCode) +
                            ", Response: " + responseBody;
-            logDebug1(m_logTag.c_str(), "%s", errorMessage.c_str());
+            LOGFN_DEBUG1(m_logFn, "%s", errorMessage.c_str());
         };
 
         // Execute the POST request synchronously
         m_httpRequest->post(RequestParameters {.url = HttpURL(url), .secureCommunication = m_secureCommunication},
                             PostRequestParametersRValue {.onSuccess = onSuccess, .onError = onError},
-                            {});
+                            ConfigurationParameters {.timeout = m_requestTimeoutMs});
 
         if (!success)
         {
@@ -767,7 +926,7 @@ public:
 
             const auto onSuccess = [this](const std::string& response)
             {
-                logDebug2(m_logTag.c_str(), "PIT successfully deleted. Response: %s", response.c_str());
+                LOGFN_DEBUG2(m_logFn, "PIT successfully deleted. Response: %s", response.c_str());
             };
 
             const auto onError =
@@ -781,7 +940,7 @@ public:
                                                       .data = deleteBody.dump(),
                                                       .secureCommunication = m_secureCommunication},
                                    PostRequestParametersRValue {.onSuccess = onSuccess, .onError = onError},
-                                   {});
+                                   ConfigurationParameters {.timeout = m_requestTimeoutMs});
         }
         catch (const std::exception& e)
         {
@@ -872,7 +1031,7 @@ public:
                                                .data = requestBody.dump(),
                                                .secureCommunication = m_secureCommunication},
                             PostRequestParametersRValue {.onSuccess = onSuccess, .onError = onError},
-                            {});
+                            ConfigurationParameters {.timeout = m_requestTimeoutMs});
 
         if (!success)
         {
@@ -956,7 +1115,7 @@ public:
                                                .data = requestBody.dump(),
                                                .secureCommunication = m_secureCommunication},
                             PostRequestParametersRValue {.onSuccess = onSuccess, .onError = onError},
-                            {});
+                            ConfigurationParameters {.timeout = m_requestTimeoutMs});
 
         if (!success)
         {

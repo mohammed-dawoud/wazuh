@@ -1,6 +1,7 @@
 #include <fmt/format.h>
 
 #include <base/logging.hpp>
+#include <base/utils/stringUtils.hpp>
 #include <cmstore/detail.hpp>
 #include <cmstore/types.hpp>
 
@@ -19,10 +20,12 @@ std::string assetUuidFromJson(const json::Json& jsonDoc, const base::Name& asset
             fmt::format("Asset '{}' is missing required UUID at JSON path '{}'", assetName.toStr(), PATH_KEY_ID));
     }
 
-    if (!base::utils::generators::isValidUUIDv4(uuid))
+    if (!base::utils::generators::isValidResourceId(uuid))
     {
-        throw std::runtime_error(fmt::format(
-            "Asset '{}' has an invalid UUIDv4 '{}' at JSON path '{}'", assetName.toStr(), uuid, PATH_KEY_ID));
+        throw std::runtime_error(fmt::format("Asset '{}' has an invalid UUID at JSON path '{}': {}",
+                                             assetName.toStr(),
+                                             PATH_KEY_ID,
+                                             base::utils::generators::RESOURCE_ID_RULES));
     }
 
     return uuid;
@@ -59,8 +62,10 @@ base::Name assetNameFromJson(const json::Json& jsonDoc)
     {
         throw std::runtime_error("Missing or empty asset name at JSON path '/name'");
     }
+
     return base::Name {name};
 }
+
 } // namespace
 
 namespace cm::crud
@@ -136,9 +141,9 @@ void CrudService::deleteNamespace(const cm::store::NamespaceId& nsId)
 }
 
 cm::store::dataType::Policy CrudService::importNamespace(const cm::store::NamespaceId& nsId,
-                                  std::string_view jsonDocument,
-                                  std::string_view originSpace,
-                                  bool force)
+                                                         std::string_view jsonDocument,
+                                                         std::string_view originSpace,
+                                                         bool force)
 {
     auto store = getStore();
 
@@ -151,7 +156,11 @@ cm::store::dataType::Policy CrudService::importNamespace(const cm::store::Namesp
         }
         catch (const std::exception& ex)
         {
-            LOG_WARNING_L(functionName.c_str(), "Rollback delete failed for '{}': {}", id.toStr(), ex.what());
+            LOG_WARNING_L(functionName.c_str(),
+                          "[CM::CRUD] Rollback delete failed "
+                          "for '{}': {}",
+                          id.toStr(),
+                          ex.what());
         }
     };
 
@@ -162,8 +171,9 @@ cm::store::dataType::Policy CrudService::importNamespace(const cm::store::Namesp
         // Reject if destination namespace already exists
         if (store->existsNamespace(nsId))
         {
-            throw std::runtime_error(fmt::format(
-                "Namespace '{}' already exists. Import is only allowed into a new namespace.", nsId.toStr()));
+            throw std::runtime_error(fmt::format("Namespace '{}' already exists. "
+                                                 "Import is only allowed into a new namespace",
+                                                 nsId.toStr()));
         }
 
         // Parse and validate input JSON structure
@@ -245,6 +255,12 @@ cm::store::dataType::Policy CrudService::importNamespace(const cm::store::Namesp
                         case cm::store::ResourceType::INTEGRATION:
                         {
                             auto integ = cm::store::dataType::Integration::fromJson(item, /*requireUUID:*/ true);
+                            if (!base::Name::isValidPart(integ.getName()))
+                            {
+                                throw std::runtime_error(fmt::format("Invalid resource name: '{}' for resource '{}'",
+                                                                     integ.getName(),
+                                                                     cm::store::resourceTypeToString(type)));
+                            }
                             if (!force)
                             {
                                 validateIntegration(nsReader, integ);
@@ -258,6 +274,12 @@ cm::store::dataType::Policy CrudService::importNamespace(const cm::store::Namesp
                         case cm::store::ResourceType::KVDB:
                         {
                             auto kvdb = cm::store::dataType::KVDB::fromJson(item, /*requireUUID:*/ true);
+                            if (!base::Name::isValidPart(kvdb.getName()))
+                            {
+                                throw std::runtime_error(fmt::format("Invalid resource name: '{}' for resource '{}'",
+                                                                     kvdb.getName(),
+                                                                     cm::store::resourceTypeToString(type)));
+                            }
 
                             const std::string& name = kvdb.getName();
                             ns->createResource(name, type, kvdb.toJson());
@@ -355,8 +377,9 @@ void CrudService::importNamespace(const cm::store::NamespaceId& nsId,
     // Reject if destination namespace already exists
     if (store->existsNamespace(nsId))
     {
-        throw std::runtime_error(
-            fmt::format("Namespace '{}' already exists. Import is only allowed into a new namespace.", nsId.toStr()));
+        throw std::runtime_error(fmt::format("Namespace '{}' already exists. "
+                                             "Import is only allowed into a new namespace",
+                                             nsId.toStr()));
     }
 
     // Create empty destination namespace
@@ -366,6 +389,12 @@ void CrudService::importNamespace(const cm::store::NamespaceId& nsId,
     for (const auto& jkvdb : kvdbs)
     {
         auto kvdb = cm::store::dataType::KVDB::fromJson(jkvdb, true);
+        if (!base::Name::isValidPart(kvdb.getName()))
+        {
+            throw std::runtime_error(fmt::format("Invalid resource name: '{}' for resource '{}'",
+                                                 kvdb.getName(),
+                                                 cm::store::resourceTypeToString(cm::store::ResourceType::KVDB)));
+        }
         ns->createResource(kvdb.getName(), cm::store::ResourceType::KVDB, kvdb.toJson());
     }
 
@@ -410,6 +439,13 @@ void CrudService::importNamespace(const cm::store::NamespaceId& nsId,
     for (const auto& jinteg : integrations)
     {
         auto integ = cm::store::dataType::Integration::fromJson(jinteg, true);
+        if (!base::Name::isValidPart(integ.getName()))
+        {
+            throw std::runtime_error(
+                fmt::format("Invalid resource name: '{}' for resource '{}'",
+                            integ.getName(),
+                            cm::store::resourceTypeToString(cm::store::ResourceType::INTEGRATION)));
+        }
         if (!softValidation)
         {
             validator->softIntegrationValidate(nsReader, integ);
@@ -687,13 +723,25 @@ void CrudService::validateResource(cm::store::ResourceType type, const json::Jso
 
             case cm::store::ResourceType::INTEGRATION:
             {
-                (void)cm::store::dataType::Integration::fromJson(payload, /*requireUUID:*/ true);
+                auto integration = cm::store::dataType::Integration::fromJson(payload, /*requireUUID:*/ true);
+                if (!base::Name::isValidPart(integration.getName()))
+                {
+                    throw std::runtime_error(fmt::format("Invalid resource name: '{}' for resource '{}'",
+                                                         integration.getName(),
+                                                         cm::store::resourceTypeToString(type)));
+                }
                 return;
             }
 
             case cm::store::ResourceType::KVDB:
             {
-                (void)cm::store::dataType::KVDB::fromJson(payload, /*requireUUID:*/ true);
+                auto kvdb = cm::store::dataType::KVDB::fromJson(payload, /*requireUUID:*/ true);
+                if (!base::Name::isValidPart(kvdb.getName()))
+                {
+                    throw std::runtime_error(fmt::format("Invalid resource name: '{}' for resource '{}'",
+                                                         kvdb.getName(),
+                                                         cm::store::resourceTypeToString(type)));
+                }
                 return;
             }
 

@@ -12,6 +12,7 @@
 #include "HTTPRequest.hpp"
 #include "indexerConnector.hpp"
 #include "indexerConnectorSyncImpl.hpp"
+#include "indexerSession.hpp"
 #include "loggerHelper.h"
 #include "serverSelector.hpp"
 
@@ -28,9 +29,21 @@ public:
     {
     }
 
-    void deleteByQuery(const std::string& index, const std::string& agentId)
+    /// Shared-session overload: adopts the session's monitor and transport settings, so this
+    /// connector performs no health check and no keystore read of its own.
+    Impl(const nlohmann::json& config, const IndexerSession& session, LoggingContext logging)
+        : m_impl(config,
+                 std::move(logging.second),
+                 nullptr,
+                 makeSharedSelector(config, session),
+                 std::move(logging.first),
+                 sessionData(session).m_secureCommunication)
     {
-        m_impl.deleteByQuery(index, agentId);
+    }
+
+    void deleteByQuery(const std::string& index, const std::string& agentId, const std::string& clusterName)
+    {
+        m_impl.deleteByQuery(index, agentId, clusterName);
     }
 
     void executeUpdateByQuery(const std::vector<std::string>& indices, const nlohmann::json& updateQuery)
@@ -123,11 +136,20 @@ IndexerConnectorSync::IndexerConnectorSync(const nlohmann::json& config, Logging
 {
 }
 
+IndexerConnectorSync::IndexerConnectorSync(const nlohmann::json& config,
+                                           const IndexerSession& session,
+                                           LoggingContext logging)
+    : m_impl(std::make_unique<Impl>(config, session, std::move(logging)))
+{
+}
+
 IndexerConnectorSync::~IndexerConnectorSync() = default;
 
-void IndexerConnectorSync::deleteByQuery(const std::string& index, const std::string& agentId)
+void IndexerConnectorSync::deleteByQuery(const std::string& index,
+                                         const std::string& agentId,
+                                         const std::string& clusterName)
 {
-    m_impl->deleteByQuery(index, agentId);
+    m_impl->deleteByQuery(index, agentId, clusterName);
 }
 
 void IndexerConnectorSync::executeUpdateByQuery(const std::vector<std::string>& indices,

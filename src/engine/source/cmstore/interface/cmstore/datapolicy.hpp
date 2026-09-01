@@ -130,6 +130,12 @@ public:
         , m_indexDiscardedEvents(indexDiscardedEvents)
         , m_cleanupDecoderVariables(cleanupDecoderVariables)
     {
+        // An empty root decoder means "no root decoder"; a present one must be a valid identifier
+        if (!m_rootDecoder.empty() && !base::utils::generators::isValidResourceId(m_rootDecoder))
+        {
+            throw std::runtime_error(fmt::format("Policy root decoder is not a valid identifier: {}",
+                                                 base::utils::generators::RESOURCE_ID_RULES));
+        }
         cm::store::detail::findDuplicateOrInvalidUUID(m_integrations, "Integration");
         cm::store::detail::findDuplicateOrInvalidUUID(m_outputs, "Output");
         cm::store::detail::findDuplicateOrInvalidUUID(m_filters, "Filter");
@@ -169,13 +175,15 @@ public:
             return enabledOpt.value();
         }();
 
-        // Get root decoder
+        // Get root decoder (treat null as an empty string)
         auto rootDecoder = [&]()
         {
             std::string rootDecoder;
-            if (policyJson.getString(rootDecoder, jsonpolicy::PATH_KEY_ROOT_PARENT) != json::RetGet::Success)
+            if (policyJson.getString(rootDecoder, jsonpolicy::PATH_KEY_ROOT_PARENT) != json::RetGet::Success
+                && !policyJson.isNull(jsonpolicy::PATH_KEY_ROOT_PARENT))
             {
-                throw std::runtime_error("Policy JSON must have a 'root_decoder' field");
+
+                throw std::runtime_error("Policy JSON must have a 'root_decoder' string field or null");
             }
             return rootDecoder;
         }();

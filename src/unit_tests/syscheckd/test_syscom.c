@@ -181,6 +181,27 @@ void test_syscom_dispatch_sync_error(void **state)
     assert_int_equal(ret, 24);
 }
 
+void test_syscom_dispatch_sync_destroyed_handle(void **state)
+{
+    (void) state;
+    size_t ret;
+    char command[] = "fim_sync test-data";
+    char *output;
+
+    syscheck.enable_synchronization = 1;
+    // The shutdown teardown destroyed the handle: the response must be dropped
+    // without touching the sync protocol (asp_parse_response_buffer is not called).
+    syscheck.sync_handle = NULL;
+
+    expect_string(__wrap__mdebug1, formatted_msg, "WMCOM Error syncing module");
+
+    ret = syscom_dispatch(command, strlen(command), &output);
+    *state = output;
+
+    assert_string_equal(output, "err Error syncing module");
+    assert_int_equal(ret, 24);
+}
+
 void test_syscom_getconfig_syscheck(void **state)
 {
     (void) state;
@@ -312,6 +333,32 @@ void test_syscom_getconfig_null_output(void **state)
 }
 
 
+
+void test_syscom_dispatch_getallconfig(void **state)
+{
+    (void) state;
+    size_t ret;
+
+    /* "getallconfig" does not start with HC_GETCONFIG, so the outer prefix
+     * guard in syscom_dispatch has to name it explicitly. When it did not, the
+     * whole daemon answered "err Unrecognized command" and fim went missing
+     * from every /config document the agent pushed (#37843). */
+    char command[] = "getallconfig";
+    char * output = NULL;
+
+    will_return(__wrap_getSyscheckConfig, NULL);
+    will_return(__wrap_getRootcheckConfig, NULL);
+    will_return(__wrap_getSyscheckInternalOptions, NULL);
+
+    ret = syscom_dispatch(command, strlen(command), &output);
+    *state = output;
+
+    /* Every getter empty still has to be a report, not a rejection: the caller
+     * tells "this daemon reported nothing" from "this daemon is unreachable". */
+    assert_string_equal(output, "ok {}");
+    assert_int_equal(ret, strlen(output));
+}
+
 int main(void) {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test_teardown(test_syscom_dispatch_getconfig_agent, delete_string),
@@ -323,12 +370,14 @@ int main(void) {
         cmocka_unit_test_teardown(test_syscom_dispatch_sync_success, delete_string),
         cmocka_unit_test_teardown(test_syscom_dispatch_sync_disabled, delete_string),
         cmocka_unit_test_teardown(test_syscom_dispatch_sync_error, delete_string),
+        cmocka_unit_test_teardown(test_syscom_dispatch_sync_destroyed_handle, delete_string),
         cmocka_unit_test_teardown(test_syscom_getconfig_syscheck, delete_string),
         cmocka_unit_test_teardown(test_syscom_getconfig_syscheck_failure, delete_string),
         cmocka_unit_test_teardown(test_syscom_getconfig_rootcheck, delete_string),
         cmocka_unit_test_teardown(test_syscom_getconfig_rootcheck_failure, delete_string),
         cmocka_unit_test_teardown(test_syscom_getconfig_internal, delete_string),
         cmocka_unit_test_teardown(test_syscom_getconfig_internal_failure, delete_string),
+        cmocka_unit_test_teardown(test_syscom_dispatch_getallconfig, delete_string),
         cmocka_unit_test(test_syscom_getconfig_null_section),
         cmocka_unit_test(test_syscom_getconfig_null_output),
     };

@@ -4,6 +4,7 @@
 #include <memory>
 #include <unistd.h>
 
+#include <base/logging.hpp>
 #include <base/name.hpp>
 #include <base/utils/generator.hpp>
 #include <gmock/gmock.h>
@@ -26,6 +27,7 @@ protected:
 
     void SetUp() override
     {
+        logging::testInit();
         const auto suffix = base::utils::generators::generateUUIDv4();
         m_root = std::filesystem::temp_directory_path() / ("cmstore-test-" + suffix);
         m_outputs = m_root / "default_outputs";
@@ -318,10 +320,36 @@ TEST(IntegrationTest, ConstructorEmptyUUIDNotRequired)
     EXPECT_NO_THROW(cm::store::dataType::Integration("", "name", true, "security", std::nullopt, {}, {}, false));
 }
 
-TEST(IntegrationTest, ConstructorInvalidUUIDThrows)
+TEST(IntegrationTest, ConstructorNonV4UUIDAccepted)
 {
-    EXPECT_THROW(cm::store::dataType::Integration("not-a-uuid", "name", true, "security", std::nullopt, {}, {}),
-                 std::runtime_error);
+    // The identifier is opaque to the engine: any UUID version or format is accepted
+    EXPECT_NO_THROW(cm::store::dataType::Integration(
+        "6093809a-6285-5cf8-9284-63bd68f796e9", "name", true, "security", std::nullopt, {}, {}));
+    EXPECT_NO_THROW(cm::store::dataType::Integration("not-a-uuid", "name", true, "security", std::nullopt, {}, {}));
+}
+
+TEST(IntegrationTest, ConstructorInvalidUUIDThrowsEvenWhenNotRequired)
+{
+    for (const bool requireUUID : {true, false})
+    {
+        EXPECT_THROW(
+            cm::store::dataType::Integration("bad\tid", "name", true, "security", std::nullopt, {}, {}, requireUUID),
+            std::runtime_error);
+    }
+}
+
+TEST(IntegrationTest, ConstructorInvalidDefaultParentThrows)
+{
+    EXPECT_THROW(
+        cm::store::dataType::Integration(validUUID(), "name", true, "security", std::string("bad\nid"), {}, {}),
+        std::runtime_error);
+}
+
+TEST(IntegrationTest, ConstructorDecoderUUIDsDifferingOnlyByCaseAreDistinct)
+{
+    // Identifiers are compared byte by byte: no case folding
+    EXPECT_NO_THROW(
+        cm::store::dataType::Integration(validUUID(), "name", true, "security", std::nullopt, {}, {"ABC", "abc"}));
 }
 
 TEST(IntegrationTest, ConstructorEmptyNameThrows)
@@ -342,11 +370,16 @@ TEST(IntegrationTest, ConstructorInvalidCategoryThrows)
                  std::runtime_error);
 }
 
-TEST(IntegrationTest, ConstructorInvalidDefaultParentThrows)
+TEST(IntegrationTest, ConstructorEmptyDefaultParentThrows)
 {
-    EXPECT_THROW(
-        cm::store::dataType::Integration(validUUID(), "name", true, "security", std::string("not-a-uuid"), {}, {}),
-        std::runtime_error);
+    EXPECT_THROW(cm::store::dataType::Integration(validUUID(), "name", true, "security", std::string(""), {}, {}),
+                 std::runtime_error);
+}
+
+TEST(IntegrationTest, ConstructorNonV4DefaultParentAccepted)
+{
+    EXPECT_NO_THROW(cm::store::dataType::Integration(
+        validUUID(), "name", true, "security", std::string("6093809a-6285-5cf8-9284-63bd68f796e9"), {}, {}));
 }
 
 TEST(IntegrationTest, ConstructorDuplicateDecoderUUIDsThrows)
@@ -393,11 +426,19 @@ TEST(IntegrationTest, FromJsonMissingIdRequiredThrows)
     EXPECT_THROW(cm::store::dataType::Integration::fromJson(j, true), std::runtime_error);
 }
 
-TEST(IntegrationTest, FromJsonInvalidIdRequiredThrows)
+TEST(IntegrationTest, FromJsonEmptyIdRequiredThrows)
 {
     auto j = makeValidIntegrationJson(false);
-    j.setString("not-a-valid-uuid", "/id");
+    j.setString("", "/id");
     EXPECT_THROW(cm::store::dataType::Integration::fromJson(j, true), std::runtime_error);
+}
+
+TEST(IntegrationTest, FromJsonNonV4IdRequiredAccepted)
+{
+    auto j = makeValidIntegrationJson(false);
+    j.setString("6093809a-6285-5cf8-9284-63bd68f796e9", "/id");
+    auto integration = cm::store::dataType::Integration::fromJson(j, true);
+    EXPECT_EQ(integration.getUUID(), "6093809a-6285-5cf8-9284-63bd68f796e9");
 }
 
 TEST(IntegrationTest, FromJsonMissingIdNotRequired)
@@ -469,11 +510,11 @@ TEST(IntegrationTest, FromJsonEmptyDefaultParentThrows)
     EXPECT_THROW(cm::store::dataType::Integration::fromJson(j, true), std::runtime_error);
 }
 
-TEST(IntegrationTest, FromJsonInvalidDefaultParentThrows)
+TEST(IntegrationTest, FromJsonNonV4DefaultParentAccepted)
 {
     auto j = makeValidIntegrationJson();
-    j.setString("not-a-valid-uuid", "/default_parent");
-    EXPECT_THROW(cm::store::dataType::Integration::fromJson(j, true), std::runtime_error);
+    j.setString("6093809a-6285-5cf8-9284-63bd68f796e9", "/default_parent");
+    EXPECT_NO_THROW(cm::store::dataType::Integration::fromJson(j, true));
 }
 
 TEST(IntegrationTest, ToJsonWithDecodersKVDBsAndDefaultParent)
@@ -582,6 +623,7 @@ class CMStoreNSTest : public ::testing::Test
 protected:
     void SetUp() override
     {
+        logging::testInit();
         m_storageDir = std::make_unique<TempDir>();
         m_outputsDir = std::make_unique<TempDir>();
         std::filesystem::create_directories(m_outputsDir->path() / "default");
@@ -739,6 +781,56 @@ TEST_F(CMStoreNSTest, CreateResourceWithExistingIDPreservesIt)
     auto uuid = store->createResource(
         "decoder/withid/0", cm::store::ResourceType::DECODER, makeDecoderJson("decoder/withid/0", existingUUID));
     EXPECT_EQ(uuid, existingUUID);
+}
+
+TEST_F(CMStoreNSTest, CreateResourceWithNonV4IDPreservesIt)
+{
+    auto store = makeStore();
+
+    // UUIDv5 and a custom identifier: both are opaque to the store
+    EXPECT_EQ(store->createResource("decoder/v5/0",
+                                    cm::store::ResourceType::DECODER,
+                                    makeDecoderJson("decoder/v5/0", "6093809a-6285-5cf8-9284-63bd68f796e9")),
+              "6093809a-6285-5cf8-9284-63bd68f796e9");
+    EXPECT_EQ(store->createResource("decoder/custom/0",
+                                    cm::store::ResourceType::DECODER,
+                                    makeDecoderJson("decoder/custom/0", "custom/id_1")),
+              "custom/id_1");
+    EXPECT_TRUE(store->assetExistsByUUID("custom/id_1"));
+    EXPECT_EQ(std::get<0>(store->resolveNameFromUUID("custom/id_1")), "decoder/custom/0");
+}
+
+TEST_F(CMStoreNSTest, CreateResourceIDsDifferingOnlyByCaseAreDistinct)
+{
+    auto store = makeStore();
+
+    // Identifiers are stored and looked up byte by byte: no normalization is applied
+    store->createResource(
+        "decoder/upper/0", cm::store::ResourceType::DECODER, makeDecoderJson("decoder/upper/0", "ABC"));
+    store->createResource(
+        "decoder/lower/0", cm::store::ResourceType::DECODER, makeDecoderJson("decoder/lower/0", "abc"));
+
+    EXPECT_TRUE(store->assetExistsByUUID("ABC"));
+    EXPECT_TRUE(store->assetExistsByUUID("abc"));
+    EXPECT_FALSE(store->assetExistsByUUID("Abc"));
+    EXPECT_EQ(std::get<0>(store->resolveNameFromUUID("ABC")), "decoder/upper/0");
+    EXPECT_EQ(std::get<0>(store->resolveNameFromUUID("abc")), "decoder/lower/0");
+}
+
+TEST_F(CMStoreNSTest, CreateResourceWithInvalidIDThrows)
+{
+    auto store = makeStore();
+
+    EXPECT_THROW(store->createResource(
+                     "decoder/ctrl/0", cm::store::ResourceType::DECODER, makeDecoderJson("decoder/ctrl/0", "bad\nid")),
+                 std::runtime_error);
+    EXPECT_THROW(
+        store->createResource(
+            "decoder/long/0",
+            cm::store::ResourceType::DECODER,
+            makeDecoderJson("decoder/long/0", std::string(base::utils::generators::MAX_RESOURCE_ID_LENGTH + 1, 'a'))),
+        std::runtime_error);
+    EXPECT_FALSE(store->assetExistsByUUID("bad\nid"));
 }
 
 // ======================== Policy ========================
@@ -920,6 +1012,7 @@ class CMStoreTest : public ::testing::Test
 protected:
     void SetUp() override
     {
+        logging::testInit();
         m_baseDir = std::make_unique<TempDir>();
         m_outputsDir = std::make_unique<TempDir>();
         std::filesystem::create_directories(m_outputsDir->path() / "default");
@@ -1141,11 +1234,38 @@ TEST(KVDBTest, ConstructorEmptyUUIDNotRequired)
     EXPECT_NO_THROW(cm::store::dataType::KVDB("", "name", std::move(content), true, false));
 }
 
-TEST(KVDBTest, ConstructorInvalidUUIDThrows)
+TEST(KVDBTest, ConstructorNonV4UUIDAccepted)
 {
-    json::Json content;
-    content.setString("v", "/k");
-    EXPECT_THROW(cm::store::dataType::KVDB("not-a-uuid", "name", std::move(content), true, true), std::runtime_error);
+    // The identifier is opaque to the engine: any UUID version or format is accepted
+    json::Json contentV5;
+    contentV5.setString("v", "/k");
+    EXPECT_NO_THROW(
+        cm::store::dataType::KVDB("6093809a-6285-5cf8-9284-63bd68f796e9", "name", std::move(contentV5), true, true));
+
+    json::Json contentOther;
+    contentOther.setString("v", "/k");
+    EXPECT_NO_THROW(cm::store::dataType::KVDB("not-a-uuid", "name", std::move(contentOther), true, true));
+}
+
+TEST(KVDBTest, ConstructorInvalidUUIDThrowsEvenWhenNotRequired)
+{
+    // A present identifier is always checked, even if the caller does not require one
+    for (const bool requireUUID : {true, false})
+    {
+        json::Json contentCtrl;
+        contentCtrl.setString("v", "/k");
+        EXPECT_THROW(cm::store::dataType::KVDB("bad\nid", "name", std::move(contentCtrl), true, requireUUID),
+                     std::runtime_error);
+
+        json::Json contentLong;
+        contentLong.setString("v", "/k");
+        EXPECT_THROW(cm::store::dataType::KVDB(std::string(base::utils::generators::MAX_RESOURCE_ID_LENGTH + 1, 'a'),
+                                               "name",
+                                               std::move(contentLong),
+                                               true,
+                                               requireUUID),
+                     std::runtime_error);
+    }
 }
 
 TEST(KVDBTest, ConstructorEmptyNameThrows)
@@ -1173,10 +1293,10 @@ TEST(KVDBTest, FromJsonMissingIdRequiredThrows)
     EXPECT_THROW(cm::store::dataType::KVDB::fromJson(j, true), std::runtime_error);
 }
 
-TEST(KVDBTest, FromJsonInvalidIdRequiredThrows)
+TEST(KVDBTest, FromJsonEmptyIdRequiredThrows)
 {
     json::Json j;
-    j.setString("not-a-uuid", "/id");
+    j.setString("", "/id");
     j.setString("test_kvdb", "/metadata/title");
     j.setBool(true, "/enabled");
     json::Json content;
@@ -1184,6 +1304,20 @@ TEST(KVDBTest, FromJsonInvalidIdRequiredThrows)
     j.set("/content", content);
 
     EXPECT_THROW(cm::store::dataType::KVDB::fromJson(j, true), std::runtime_error);
+}
+
+TEST(KVDBTest, FromJsonNonV4IdRequiredAccepted)
+{
+    json::Json j;
+    j.setString("6093809a-6285-5cf8-9284-63bd68f796e9", "/id");
+    j.setString("test_kvdb", "/metadata/title");
+    j.setBool(true, "/enabled");
+    json::Json content;
+    content.setString("v", "/k");
+    j.set("/content", content);
+
+    auto kvdb = cm::store::dataType::KVDB::fromJson(j, true);
+    EXPECT_EQ(kvdb.getUUID(), "6093809a-6285-5cf8-9284-63bd68f796e9");
 }
 
 TEST(KVDBTest, FromJsonMissingTitleThrows)
@@ -1297,6 +1431,34 @@ TEST(PolicyTest, ConstructorInvalidOriginSpaceThrows)
                  std::runtime_error);
 }
 
+TEST(PolicyTest, ConstructorNonV4RootDecoderAccepted)
+{
+    // The root decoder identifier is opaque: any UUID version or custom string is accepted
+    EXPECT_NO_THROW(cm::store::dataType::Policy(
+        "t", true, "6093809a-6285-5cf8-9284-63bd68f796e9", {}, {}, {}, {}, "UNDEFINED", "", false, false, true));
+    EXPECT_NO_THROW(
+        cm::store::dataType::Policy("t", true, "custom/id_1", {}, {}, {}, {}, "UNDEFINED", "", false, false, true));
+}
+
+TEST(PolicyTest, ConstructorInvalidRootDecoderThrows)
+{
+    EXPECT_THROW(cm::store::dataType::Policy("t", true, "bad\nid", {}, {}, {}, {}, "UNDEFINED", "", false, false, true),
+                 std::runtime_error);
+    EXPECT_THROW(cm::store::dataType::Policy("t",
+                                             true,
+                                             std::string(base::utils::generators::MAX_RESOURCE_ID_LENGTH + 1, 'a'),
+                                             {},
+                                             {},
+                                             {},
+                                             {},
+                                             "UNDEFINED",
+                                             "",
+                                             false,
+                                             false,
+                                             true),
+                 std::runtime_error);
+}
+
 TEST(PolicyTest, ConstructorDuplicateIntegrationsThrows)
 {
     const std::string uuid = validUUID();
@@ -1375,6 +1537,29 @@ TEST(PolicyTest, FromJsonMissingRootDecoderThrows)
 {
     auto j = makeValidPolicyJson();
     j.erase("/root_decoder");
+    EXPECT_THROW(cm::store::dataType::Policy::fromJson(j), std::runtime_error);
+}
+
+TEST(PolicyTest, FromJsonRootDecoderNullUUIDIsEmpty)
+{
+    auto j = makeValidPolicyJson();
+    j.setNull("/root_decoder");
+
+    auto p = cm::store::dataType::Policy::fromJson(j);
+    EXPECT_TRUE(p.getRootDecoderUUID().empty());
+}
+
+TEST(PolicyTest, FromJsonInvalidRootDecoderThrows)
+{
+    auto j = makeValidPolicyJson();
+    j.setString("bad\tid", "/root_decoder");
+    EXPECT_THROW(cm::store::dataType::Policy::fromJson(j), std::runtime_error);
+}
+
+TEST(PolicyTest, FromJsonRootDecoderWrongTypeThrows)
+{
+    auto j = makeValidPolicyJson();
+    j.setInt(42, "/root_decoder");
     EXPECT_THROW(cm::store::dataType::Policy::fromJson(j), std::runtime_error);
 }
 
@@ -1768,11 +1953,11 @@ TEST_F(CMStoreNSTest, RebuildCacheSkipsFileWithInvalidJSON)
     EXPECT_EQ(store->getCollection(cm::store::ResourceType::DECODER).size(), 1u);
 }
 
-TEST_F(CMStoreNSTest, RebuildCacheSkipsFileWithExistingInvalidUUID)
+TEST_F(CMStoreNSTest, RebuildCacheSkipsFileWithEmptyUUID)
 {
     std::filesystem::remove(storagePath() / "cache_ns.json");
     std::filesystem::create_directories(storagePath() / "decoders");
-    writeFile(storagePath() / "decoders" / "decoder_bad_0.json", R"({"id":"not-a-uuid"})");
+    writeFile(storagePath() / "decoders" / "decoder_bad_0.json", R"({"id":""})");
     writeFile(storagePath() / "decoders" / "decoder_ok_0.json", makeMinimalResourceJson().str());
 
     auto store = makeStore();

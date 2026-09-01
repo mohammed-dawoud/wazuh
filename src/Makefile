@@ -80,6 +80,7 @@ EXTERNAL_RPM=external/rpm/
 EXTERNAL_POPT=external/popt/
 EXTERNAL_LIBBPF=external/libbpf-bootstrap/
 EXTERNAL_DBUS=external/dbus/
+EXTERNAL_LLHTTP=external/llhttp/
 # XXX Becareful NO EXTRA Spaces here
 ifeq ($(TARGET),manager)
 WAZUH_USER?=wazuh-manager
@@ -97,7 +98,7 @@ CA_NAME?=DigiCert Assured ID Root CA
 HTTP_REQUEST_BRANCH?=ebf9d2f82533ff2f84c3304ab29db01fcfb6735e
 
 ifeq (${TARGET},winagent)
-CMAKE_OPTS=-DCMAKE_SYSTEM_NAME=Windows -DCMAKE_C_COMPILER=${MING_BASE}${CC} -DCMAKE_CXX_COMPILER=${MING_BASE}${CXX} -DEVENTCHANNEL_SUPPORT=ON
+CMAKE_OPTS=-DCMAKE_SYSTEM_NAME=Windows -DCMAKE_C_COMPILER=${MING_BASE}${CC}$(if $(filter gcc,${CC}),-posix) -DCMAKE_CXX_COMPILER=${MING_BASE}${CXX} -DEVENTCHANNEL_SUPPORT=ON
 endif
 
 ifneq (,$(filter ${TEST},YES yes y Y 1))
@@ -401,7 +402,16 @@ ifneq (,$(shell curl --help all 2>/dev/null | grep -F -- '--retry-all-errors'))
 	TZDATA_CURL_FLAGS += --retry-all-errors
 endif
 TZDATA_CURL := curl $(TZDATA_CURL_FLAGS) -o
-DEPS_VERSION = 99-29734
+# Curl flags for indexer templates and WCS flat files with retry logic
+INDEXER_CURL_FLAGS := -fsS --retry 5 --retry-delay 2 --connect-timeout 20 --max-time 300
+ifneq (,$(shell curl --help all 2>/dev/null | grep -F -- '--retry-connrefused'))
+	INDEXER_CURL_FLAGS += --retry-connrefused
+endif
+ifneq (,$(shell curl --help all 2>/dev/null | grep -F -- '--retry-all-errors'))
+	INDEXER_CURL_FLAGS += --retry-all-errors
+endif
+INDEXER_CURL := curl $(INDEXER_CURL_FLAGS) -o
+DEPS_VERSION = 99-37702
 RESOURCES_URL_BASE := https://packages.wazuh.com/deps/
 RESOURCES_URL := $(RESOURCES_URL_BASE)$(DEPS_VERSION)
 CPYTHON := cpython
@@ -466,7 +476,7 @@ endif
 #     shared by the unit-test CI, whose deps step runs `make deps TARGET=...`
 #     WITHOUT TEST=1 and only enables tests at build time. Gating these behind a
 #     TEST flag drops them from that bundle and breaks every test build (#36247).
-EXTERNAL_RES := cJSON openssl zlib sqlite libyaml curl libpcre2 nlohmann flatbuffers bzip2 googletest benchmark
+EXTERNAL_RES := cJSON openssl zlib sqlite libyaml curl libpcre2 nlohmann flatbuffers bzip2 zstd googletest benchmark jwt-cpp rapidjson
 
 # Linux unit-test wrapper dependencies (every Linux leg except the winagent
 # cross-compile). unit_tests/wrappers/externals/{audit,procpc} include
@@ -494,7 +504,7 @@ endif
 # Manager-only dependencies.
 ifneq (${TARGET},agent)
 ifneq (${TARGET},winagent)
-	EXTERNAL_RES += $(CPYTHON) libffi jemalloc rocksdb simdjson abseil-cpp spdlog yaml-cpp pugixml libmaxminddb protobuf date fmt re2 rapidjson taskflow RxCpp concurrentqueue fast_float geo_db tzdata cpp-httplib
+	EXTERNAL_RES += $(CPYTHON) libffi jemalloc rocksdb simdjson abseil-cpp spdlog yaml-cpp pugixml libmaxminddb protobuf date fmt re2 taskflow RxCpp concurrentqueue fast_float geo_db tzdata cpp-httplib asio expected-lite llhttp restinio
 endif
 endif
 
@@ -537,7 +547,8 @@ INDEXER_TEMPLATES_SERVER_STATES := \
 
 INDEXER_TEMPLATES_SERVER_STREAMS := \
 	metrics-agents.json \
-	metrics-comms.json
+	metrics-comms.json \
+	metrics-normalization.json
 
 # WCS flat files
 WCS_FLAT_DIR := external/wcs-flat-files
@@ -669,8 +680,8 @@ $(INDEXER_TEMPLATES_SERVER_STREAMS:%=$(INDEXER_PLUGINS_DIR)/%): | $(INDEXER_PLUG
 	@success=0; \
 	for ref in $(INDEXER_PLUGIN_REFS_LIST); do \
 		url="$(INDEXER_PLUGINS_BASE_URL)/$$ref/$(INDEXER_PLUGINS_STREAMS_PATH)/$(notdir $@)"; \
-		echo "$(CURL) $@ $(CACERT_OPT) -f $$url"; \
-		if $(CURL) $@ $(CACERT_OPT) -f "$$url" 2>/dev/null; then \
+		echo "$(INDEXER_CURL) $@ $(CACERT_OPT) -f $$url"; \
+		if $(INDEXER_CURL) $@ $(CACERT_OPT) -f "$$url"; then \
 			success=1; \
 			break; \
 		fi; \
@@ -686,8 +697,8 @@ $(INDEXER_PLUGINS_DIR)/%.json: | $(INDEXER_PLUGINS_DIR)
 	 @success=0; \
 	for ref in $(INDEXER_PLUGIN_REFS_LIST); do \
 		url="$(INDEXER_PLUGINS_BASE_URL)/$$ref/$(INDEXER_PLUGINS_STATES_PATH)/$(notdir $@)"; \
-		echo "$(CURL) $@ $(CACERT_OPT) -f $$url"; \
-		if $(CURL) $@ $(CACERT_OPT) -f "$$url" 2>/dev/null; then \
+		echo "$(INDEXER_CURL) $@ $(CACERT_OPT) -f $$url"; \
+		if $(INDEXER_CURL) $@ $(CACERT_OPT) -f "$$url"; then \
 			success=1; \
 			break; \
 		fi; \
@@ -708,8 +719,8 @@ $(WCS_FLAT_DIR)/wcs_flat.yml: | $(WCS_FLAT_DIR)
 	 @success=0; \
 	for ref in $(INDEXER_PLUGIN_REFS_LIST); do \
 		url="$(INDEXER_PLUGINS_BASE_URL)/$$ref/$(WCS_FLAT_STATELESS_PATH)/$(notdir $@)"; \
-		echo "$(CURL) $@ $(CACERT_OPT) -f $$url"; \
-		if $(CURL) $@ $(CACERT_OPT) -f "$$url" 2>/dev/null; then \
+		echo "$(INDEXER_CURL) $@ $(CACERT_OPT) -f $$url"; \
+		if $(INDEXER_CURL) $@ $(CACERT_OPT) -f "$$url"; then \
 			success=1; \
 			break; \
 		fi; \
@@ -839,6 +850,7 @@ ifneq ($(wildcard external/*/*),)
 	rm -rf $(EXTERNAL_LZMA)build
 	rm -rf $(EXTERNAL_POPT)build
 	rm -rf $(EXTERNAL_RPM)builddir
+	rm -rf $(EXTERNAL_LLHTTP)build
 # Manually-compiled dependencies - remove object files and build artifacts
 	rm -f $(EXTERNAL_JSON)*.o $(EXTERNAL_JSON)*.a
 	rm -f $(EXTERNAL_SQLITE)*.o $(EXTERNAL_SQLITE)*.a
@@ -853,7 +865,16 @@ ifneq ($(wildcard external/cpython/*),)
 endif
 
 clean-deps:
-	rm -rf $(EXTERNAL_DIR) $(EXTERNAL_TAR) shared_modules/http-request/* shared_modules/http-request/.??* $(INDEXER_PLUGINS_DIR) $(WCS_FLAT_DIR)
+# EXTERNAL_RES/EXTERNAL_DIR are filtered by TARGET, so removing only those
+# paths leaves other targets' fetched deps behind. Wipe everything under
+# external/ instead, except the two files tracked by git (CMakeLists.txt
+# and .gitignore), regardless of which TARGET this is invoked with.
+# external/ may not exist (e.g. a clean checkout that never ran make deps),
+# so skip the find instead of letting it fail the build.
+	if [ -d external ]; then \
+		find external -mindepth 1 -maxdepth 1 ! -name 'CMakeLists.txt' ! -name '.gitignore' -exec rm -rf {} + ; \
+	fi
+	rm -rf shared_modules/http-request/* shared_modules/http-request/.??* $(WCS_FLAT_DIR)
 
 clean-internals:
 # Wazuh binaries and libraries
@@ -865,6 +886,7 @@ clean-internals:
 	rm -f wazuh_modules/syscollector/include/*_generated.h
 	rm -f wazuh_modules/vulnerability_scanner/include/*_generated.h
 	rm -f wazuh_modules/vulnerability_scanner/include/*_schema.h
+	rm -rf wazuh_modules/vulnerability_scanner/include/*_generated.h
 # Selinux
 	rm -f selinux/wazuh.mod
 	rm -f selinux/wazuh.pp

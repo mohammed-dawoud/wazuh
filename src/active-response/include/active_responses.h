@@ -85,11 +85,24 @@ const cJSON* get_alert_from_json(const cJSON *input);
 const char* get_srcip_from_json(const cJSON *input);
 
 /**
- * Get username from input (WCS-compliant: user.name at root level)
+ * Get username from input (WCS-compliant: user.name at root level) and validate its format
  * @param input Input
- * @return char * with the username or NULL on fail
+ * @return char * with the username or NULL on fail or invalid username
  * */
 const char* get_username_from_json(const cJSON *input);
+
+/**
+ * Validate username format
+ * Follows Debian adduser constraints:
+ * - Must not start with dash, plus, or tilde
+ * - Must not contain colon, comma, or whitespace
+ * - Should not contain slash (may break home directory paths)
+ * Rejects: reserved names (root), empty strings, null
+ * @param username Username to validate
+ * @retval 1 If username is valid
+ * @retval 0 If username is invalid
+ * */
+int is_valid_username(const char *username);
 
 /**
  * Get extra_args from input
@@ -127,6 +140,22 @@ void splitStrFromCharDelimiter(const char * output_buf, const char delimiter, ch
  *            find only by "Status"
 */
 int isEnabledFromPattern(const char * output_buf, const char * str_pattern_1, const char * str_pattern_2);
+
+/**
+ * Validate that a string is a bare numeric IP address and return its version.
+ *
+ * Unlike get_ip_version(), this performs a strict character-whitelist check and does NOT
+ * rely on getaddrinfo/DNS, so it is available on every platform (get_ip_version is compiled
+ * out on Windows). Besides classifying the family it rejects any value that is not a plain
+ * numeric IP - no CIDR prefix, whitespace or shell metacharacters - which is required before
+ * a source IP is placed on a command line (e.g. the Windows netsh/route invocations, where
+ * arguments are not quoted).
+ * @param srcip IP string to validate
+ * @retval 4 If srcip is a bare IPv4 address
+ * @retval 6 If srcip is a bare IPv6 address
+ * @retval OS_INVALID If srcip is NULL, empty, out of range or contains any other character
+ * */
+int validate_srcip(const char *srcip);
 
 #ifndef WIN32
 

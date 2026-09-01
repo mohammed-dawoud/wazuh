@@ -2,6 +2,7 @@
 #define _SCA_H
 
 // Define EXPORTED for any platform
+#include "agent_sync_protocol_c_interface.h"
 #ifdef _WIN32
 #ifdef WIN_EXPORT
 #define EXPORTED __declspec(dllexport)
@@ -60,8 +61,7 @@ EXPORTED void sca_set_log_function(log_callback_t log_callback);
 
 EXPORTED void sca_set_push_functions(push_stateless_func stateless_func, push_stateful_func stateful_func);
 
-EXPORTED void sca_set_sync_parameters(const char* module_name, const char* sync_db_path, const MQ_Functions* mq_funcs, unsigned int sync_end_delay, unsigned int timeout, unsigned int retries,
-                                      size_t maxEps, unsigned int integrity_interval);
+EXPORTED void sca_set_sync_parameters(const char* module_name, const char* sync_db_path, unsigned int integrity_interval);
 
 // Sync protocol C wrapper functions
 EXPORTED bool sca_sync_module(Mode_t mode);
@@ -95,8 +95,7 @@ typedef void (*sca_set_log_function_func)(log_callback_t log_callback);
 
 typedef void (*sca_set_push_functions_func)(push_stateless_func stateless_func, push_stateful_func stateful_func);
 
-typedef void (*sca_set_sync_parameters_func)(const char* module_name, const char* sync_db_path, const MQ_Functions* mq_funcs, unsigned int sync_end_delay, unsigned int timeout,
-                                             unsigned int retries, size_t maxEps, unsigned int integrity_interval);
+typedef void (*sca_set_sync_parameters_func)(const char* module_name, const char* sync_db_path, unsigned int integrity_interval);
 
 // Sync protocol C wrapper functions
 typedef bool(*sca_sync_module_func)(Mode_t mode);

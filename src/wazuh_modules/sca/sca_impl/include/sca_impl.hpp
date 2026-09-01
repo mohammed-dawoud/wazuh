@@ -5,6 +5,7 @@
 #include <idbsync.hpp>
 #include <ifilesystem_wrapper.hpp>
 #include <sca_utils.hpp>
+#include "agent_sync_protocol_types.hpp"
 #include "asyncFlushController.hpp"
 #include "iagent_sync_protocol.hpp"
 
@@ -16,6 +17,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
 #include <vector>
 
@@ -67,6 +69,10 @@ class SecurityConfigurationAssessment
         /// @brief Releases owned resources after the sync worker thread has exited.
         /// Must be called only after all threads that may use those resources
         /// (in particular the sync worker thread) have been joined.
+        /// @note Every member that holds a copy of m_dBSync must be reset here (currently
+        /// m_syncManager). Missing one keeps the DBSync refcount above zero, so the SQLite
+        /// connection to sca.db is neither committed nor closed and the database stays locked
+        /// for the next process.
         void releaseResources();
 
         /// @copydoc IModule::Name
@@ -91,18 +97,15 @@ class SecurityConfigurationAssessment
         /// @brief Initialize the sync protocol
         /// @param moduleName Name of the module
         /// @param syncDbPath Path to the sync database
-        /// @param mqFuncs Message queue functions
-        /// @param syncEndDelay Delay for synchronization end message in seconds
         /// @param timeout Timeout for synchronization responses
         /// @param retries Number of retries for synchronization
-        /// @param maxEps Maximum events per second
         /// @param integrityInterval Interval in seconds between integrity checks (0 = disabled)
-        void initSyncProtocol(const std::string& moduleName, const std::string& syncDbPath, MQ_Functions mqFuncs, std::chrono::seconds syncEndDelay, std::chrono::seconds timeout, unsigned int retries,
-                              size_t maxEps, std::chrono::seconds integrityInterval);
+        void initSyncProtocol(const std::string& moduleName, const std::string& syncDbPath,
+                              std::chrono::seconds integrityInterval);
 
         /// @brief Synchronize the module
         /// @param mode Synchronization mode
-        /// @return true if synchronization was successful, false otherwise
+        /// @return true on success, false on failure (a WARNING with the reason is logged internally).
         bool syncModule(Mode mode);
 
         /// @brief Persist a difference
@@ -168,6 +171,13 @@ class SecurityConfigurationAssessment
         /// @brief Cached first-sync completion state used to gate initial stateful publication.
         std::atomic<bool> m_firstSyncCompleted {false};
 
+        /// @brief Cached first-scan completion state, persisted independent of
+        /// first_sync_completed. Its absence means a scan_on_start scan is still
+        /// owed -- e.g. an earlier Run() got interrupted before completing one
+        /// (issue 38428) -- so the next opportunity retries it immediately
+        /// instead of waiting a full m_scanInterval.
+        std::atomic<bool> m_firstScanCompleted {false};
+
         /// @brief In-memory flag set after each complete scan iteration, cleared at Run() startup.
         /// Polled by the C sync thread (via get_scan_completed query) to avoid triggering the
         /// first snapshot before any check has had a chance to run. Note that "Not run" rows
@@ -180,6 +190,12 @@ class SecurityConfigurationAssessment
 
         /// @brief Mutex for pause/resume coordination
         std::mutex m_pauseMutex;
+
+        /// @brief Execute the blocking flush work for the module.
+        /// @return 0 on success, -1 on error.
+        /// @note Protected (rather than private) so test subclasses can drive the flush path
+        ///       deterministically without spinning the asynchronous flush controller.
+        int executeFlushSync();
 
     private:
         /// @brief Get the create statement for the database
@@ -219,14 +235,17 @@ class SecurityConfigurationAssessment
         /// @brief Refresh the cached first-sync completion flag from metadata.
         void refreshFirstSyncCompletedState();
 
+        /// @brief Refresh the cached first-scan completion flag from metadata.
+        void refreshFirstScanCompletedState();
+
         /// @brief Synchronize the current DB snapshot using FULL mode.
         /// @param increaseVersions Whether to bump versions before building the snapshot.
         /// @param syncReason Reason used in logs.
-        /// @return true on success.
-        bool synchronizeDatabaseSnapshot(bool increaseVersions, const std::string& syncReason);
+        /// @return SyncModuleResult with success flag and an optional failure reason string.
+        SyncModuleResult synchronizeDatabaseSnapshot(bool increaseVersions, const std::string& syncReason);
 
         /// @brief Perform full recovery: load all checks and resync
-        /// @return true on success
+        /// @return true on success, false on failure.
         bool performRecovery();
 
         /// @brief Check with manager if full sync required via checksum
@@ -238,10 +257,6 @@ class SecurityConfigurationAssessment
         /// @return true if DB contains any policies or checks
         bool hasDataInDatabase();
 
-        /// @brief Execute the blocking flush work for the module.
-        /// @return 0 on success, -1 on error.
-        int executeFlushSync();
-
         /// @brief Handle the case when no policies are available (either at startup or runtime).
         /// If the database has existing data, triggers DataClean to notify the manager and clears DB.
         /// @return true if no cleanup was needed (DB was already empty), false if cleanup was performed or failed
@@ -252,6 +267,11 @@ class SecurityConfigurationAssessment
         /// @return true if DataClean was sent and handled successfully
         bool handleAllPoliciesRemoved();
 
+        /// @brief Handle report events when internal limit changed
+        /// @param demotedIds Check ids demoted by the limit change
+        /// @param promotedIds Check ids promoted by the limit change
+        void handleLimitEvents(const std::vector<std::string>& demotedIds, const std::vector<std::string>& promotedIds);
+
         /// @brief SCA module name
         std::string m_name = "SCA";
 
@@ -259,6 +279,8 @@ class SecurityConfigurationAssessment
         std::shared_ptr<IDBSync> m_dBSync;
 
         /// @brief SCA sync manager (document limits)
+        /// @note Co-owns m_dBSync (it is constructed with a copy of it), so it must be reset in
+        /// releaseResources() for the sca.db connection to actually be closed.
         std::shared_ptr<SCASyncManager> m_syncManager;
 
         /// @brief Function for pushing stateless event messages
@@ -296,6 +318,16 @@ class SecurityConfigurationAssessment
 
         /// @brief Controller for asynchronous flush requests.
         std::unique_ptr<Utils::AsyncFlushController> m_asyncFlushController;
+
+        /// @brief Serializes releaseResources() against the entry points that other threads
+        /// keep driving while the module tears down: wcom's dispatcher (query() and
+        /// parseResponseBuffer()) is detached and never joined, and agent-info's coordination
+        /// queries call query() in-process from its own module thread. Those entry points take
+        /// it shared around each access; releaseResources() resets the members under the
+        /// exclusive lock. The sync worker and the flush worker do not take it: the former is
+        /// joined before releaseResources() runs and the latter is joined by the flush
+        /// controller destruction before m_spSyncProtocol/m_dBSync are reset.
+        mutable std::shared_mutex m_resourcesMutex;
 
         /// @brief Commands timeout for policy execution
         int m_commandsTimeout = 0;

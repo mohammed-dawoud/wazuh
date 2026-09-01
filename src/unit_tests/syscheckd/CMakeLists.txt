@@ -449,6 +449,7 @@ set(CREATE_DB_BASE_FLAGS "-Wl,--wrap,send_syscheck_msg -Wl,--wrap,persist_sysche
                           -Wl,--wrap=fim_db_file_pattern_search,--wrap=fim_db_init \
                           -Wl,--wrap=fim_db_file_update,--wrap=fim_db_file_inode_search -Wl,--wrap,fim_db_get_count_file_inode \
                           -Wl,--wrap=fim_db_get_count_file_entry -Wl,--wrap=fim_run_integrity -Wl,--wrap=fim_db_transaction_start \
+                          -Wl,--wrap=process_pending_sync_updates \
                           -Wl,--wrap=fim_db_transaction_sync_row -Wl,--wrap=fim_db_transaction_deleted_rows \
                           -Wl,--wrap,fim_db_get_max_version_file -Wl,--wrap,fim_db_set_version_file \
                           -Wl,--wrap,fim_db_close_and_delete_database -Wl,--wrap,fim_db_clean_file_table -Wl,--wrap,fim_db_file_delete \
@@ -500,6 +501,7 @@ target_link_libraries(test_fim_sync_limits SYSCHECK_O ${TEST_DEPS})
 if(${TARGET} STREQUAL "winagent")
   target_link_libraries(test_fim_sync_limits "${FIM_SYNC_LIMITS_BASE_FLAGS} -Wl,--wrap,syscom_dispatch -Wl,--wrap,Start_win32_Syscheck \
                                 -Wl,--wrap=is_fim_shutdown -Wl,--wrap=_imp__dbsync_initialize \
+                                -Wl,--wrap,fim_registry_configuration \
                                 -Wl,--wrap=fim_db_teardown" fimdb)
 else()
   target_link_libraries(test_fim_sync_limits "${FIM_SYNC_LIMITS_BASE_FLAGS}")
@@ -515,7 +517,7 @@ target_compile_options(test_recovery PRIVATE "-Wall")
 set(RECOVERY_BASE_FLAGS "-Wl,--wrap,fim_db_get_last_sync_time -Wl,--wrap,fim_db_update_last_sync_time_value \
                          -Wl,--wrap,fim_db_get_every_element -Wl,--wrap,fim_db_calculate_table_checksum \
                          -Wl,--wrap,fim_db_increase_each_entry_version \
-                         -Wl,--wrap,asp_clear_in_memory_data -Wl,--wrap,asp_persist_diff_in_memory \
+                         -Wl,--wrap,asp_notify_data_clean -Wl,--wrap,asp_persist_diff \
                          -Wl,--wrap,asp_sync_module -Wl,--wrap,asp_requires_full_sync \
                          -Wl,--wrap,merror -Wl,--wrap,minfo -Wl,--wrap,mdebug1 \
                          -Wl,--wrap,build_stateful_event_file -Wl,--wrap,build_stateful_event_registry_key \
@@ -528,6 +530,7 @@ target_link_libraries(test_recovery SYSCHECK_O ${TEST_DEPS})
 if(${TARGET} STREQUAL "winagent")
   target_link_libraries(test_recovery "${RECOVERY_BASE_FLAGS} -Wl,--wrap=is_fim_shutdown \
                                        -Wl,--wrap=fim_db_teardown -Wl,--wrap=Start_win32_Syscheck \
+                                       -Wl,--wrap,fim_registry_configuration \
                                        -Wl,--wrap=syscom_dispatch" fimdb)
 else()
   target_link_libraries(test_recovery "${RECOVERY_BASE_FLAGS} -Wl,--wrap,time")

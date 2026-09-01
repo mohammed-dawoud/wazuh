@@ -44,7 +44,8 @@ static int w_parse_agent_add_response(const char* buffer,
                                       char* id,
                                       char* key,
                                       const int json_format,
-                                      const int exit_on_error);
+                                      const int exit_on_error,
+                                      int *error_code);
 
 //Alloc and create an agent addition command payload
 static cJSON* w_create_agent_add_payload(const char *name,
@@ -347,7 +348,7 @@ static cJSON* w_create_agent_add_payload(const char *name,
     return request;
 }
 
-static int w_parse_agent_add_response(const char* buffer, char *err_response, char* id, char* key, const int json_format, const int exit_on_error) {
+static int w_parse_agent_add_response(const char* buffer, char *err_response, char* id, char* key, const int json_format, const int exit_on_error, int *error_code) {
     int result = 0;
     cJSON* response = NULL;
     cJSON * error = NULL;
@@ -380,6 +381,9 @@ static int w_parse_agent_add_response(const char* buffer, char *err_response, ch
                 }
                 else {
                     mwarn("%d: %s", error->valueint, message ? message->valuestring : "(undefined)");
+                }
+                if (error_code) {
+                    *error_code = error->valueint;
                 }
                 result = -1;
             }
@@ -528,11 +532,11 @@ int w_send_clustered_message(const char* command, const char* payload, char* res
                 if (response_length = OS_RecvSecureClusterTCP(sock, response, OS_MAXSTR), response_length <= 0) {
                     switch (response_length) {
                     case -2:
-                        mwarn("Cluster error detected");
+                        mdebug1("Cluster error detected");
                         send_error = TRUE;
                         break;
                     case -1:
-                        mwarn("OS_RecvSecureClusterTCP(): %s", strerror(errno));
+                        mdebug1("OS_RecvSecureClusterTCP(): %s", strerror(errno));
                         send_error = TRUE;
                         break;
                     case 0:
@@ -546,14 +550,14 @@ int w_send_clustered_message(const char* command, const char* payload, char* res
                 }
             }
             else {
-                mwarn("OS_SendSecureTCPCluster(): %s", strerror(errno));
+                mdebug1("OS_SendSecureTCPCluster(): %s", strerror(errno));
                 send_error = TRUE;
                 result = -2;
             }
             close(sock);
         }
         else {
-            mwarn("Could not connect to socket '%s': %s (%d).", sockname, strerror(errno), errno);
+            mdebug1("Could not connect to socket '%s': %s (%d).", sockname, strerror(errno), errno);
             result = -2;
             send_error = TRUE;
         }
@@ -561,7 +565,7 @@ int w_send_clustered_message(const char* command, const char* payload, char* res
         if (!send_error) {
             break;
         } else if (send_attempts == CLUSTER_SEND_MESSAGE_ATTEMPTS - 1) {
-            merror("Could not send message through the cluster after '%d' attempts.", CLUSTER_SEND_MESSAGE_ATTEMPTS);
+            mwarn("Could not send message through the cluster after '%d' attempts.", CLUSTER_SEND_MESSAGE_ATTEMPTS);
         } else {
             sleep(1);
         }
@@ -579,7 +583,8 @@ int w_request_agent_add_clustered(char *err_response,
                                   char **id,
                                   char **key,
                                   authd_force_options_t *force_options,
-                                  const char *agent_id) {
+                                  const char *agent_id,
+                                  int *master_error_code) {
     int result;
     char response[OS_MAXSTR + 1];
     char new_id[FILE_SIZE+1] = { '\0' };
@@ -592,7 +597,7 @@ int w_request_agent_add_clustered(char *err_response,
     cJSON_Delete(payload);
 
     if (result = w_send_clustered_message("sendsync", output, response), result == 0) {
-        result = w_parse_agent_add_response(response, err_response, new_id, new_key, FALSE, FALSE);
+        result = w_parse_agent_add_response(response, err_response, new_id, new_key, FALSE, FALSE, master_error_code);
     }
     else if (err_response) {
         snprintf(err_response, 2048, "ERROR: Cannot comunicate with master");
@@ -665,7 +670,7 @@ int w_request_agent_add_local(int sock, char *id, const char *name, const char *
         return result;
     } else {
         response[length] = '\0';
-        result = w_parse_agent_add_response(response, NULL, id, NULL, json_format, exit_on_error);
+        result = w_parse_agent_add_response(response, NULL, id, NULL, json_format, exit_on_error, NULL);
     }
 
     return result;

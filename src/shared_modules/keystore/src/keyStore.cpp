@@ -2,19 +2,13 @@
 #include "evpHelper.hpp"
 #include "loggerHelper.h"
 #include "rocksDBWrapper.hpp"
-#include "rsaHelper.hpp"
 
 // Database constants, based on the keystore path.
 constexpr auto DATABASE_PATH {"queue/keystore"};
 
-// File constants, used in the version 1 of the keystore, currently in use only for the upgrade to version 2, that uses
-// AES 256 encryption, without the need of the private key file.
-constexpr auto PRIVATE_KEY_FILE {"etc/sslmanager.key"};
-
-// Keystore constants, KS_NAME is used in the logs as tag.
+// Keystore constants.
 // KS_VERSION is the current version of the keystore. Used to identify the version of the keystore in the database.
 // KS_VERSION_FIELD is the field used to store the version of the keystore in the database.
-constexpr auto KS_NAME {"keystore"};
 constexpr auto KS_VERSION {"2"};
 constexpr auto KS_VERSION_FIELD {"version"};
 
@@ -24,63 +18,14 @@ namespace Log
         GLOBAL_LOG_FUNCTION;
 };
 
+// Stamp the keystore format version. Pre-versioning keystores are not migrated: the manager is not
+// upgraded in place across the 4.x -> 5.x boundary, so no legacy keystore reaches this code. The
+// version field is kept so future format changes can key off it.
 static void upgrade(Utils::RocksDBWrapper& keystoreDB, const std::string& columnFamily)
 {
     std::string versionValue;
 
-    // If the version field does not exist, it means that the keystore has not been upgraded yet.
-    if (!keystoreDB.get(KS_VERSION_FIELD, versionValue, columnFamily))
-    {
-        try
-        {
-            std::string rawValue;
-
-            // Check if the private key file exists
-            if (!std::filesystem::exists(PRIVATE_KEY_FILE))
-            {
-                throw std::runtime_error("Private key file not found.");
-            }
-
-            // Upgrade all keys
-            for (const auto& [key, value] : keystoreDB.begin(columnFamily))
-            {
-                std::string encryptedRSAValue;
-                std::vector<char> encryptedValue;
-
-                // Get the encrypted RSA value
-                if (keystoreDB.get(key, encryptedRSAValue, columnFamily))
-                {
-                    logInfo(KS_NAME, "Upgrading '%s' key pair.", key.c_str());
-                }
-
-                // Decrypt the RSA value
-                RSAHelper().rsaDecrypt(PRIVATE_KEY_FILE, encryptedRSAValue, rawValue);
-                logDebug2(KS_NAME, "Decryption successful for key: '%s'", key.c_str());
-
-                // Encrypt the value with AES 256
-                EVPHelper().encryptAES256(rawValue, encryptedValue);
-
-                // Insert the key-value pair using AES encryption
-                keystoreDB.put(key, rocksdb::Slice(encryptedValue.data(), encryptedValue.size()), columnFamily);
-
-                logInfo(KS_NAME, "Key pair '%s' upgraded.", key.c_str());
-            }
-        }
-        catch (const std::exception& exception)
-        {
-            // If the upgrade fails, delete all keys and log the error.
-            keystoreDB.deleteAll(columnFamily);
-            logWarn(KS_NAME,
-                    "Keystore upgrade failed, re-run the tool again for all keys to save them. Error: %s",
-                    exception.what());
-        }
-    }
-
-    // If the version is different from the current version, update it.
-    // If the upgrade fails, the version is set to the current version, because all keys have been deleted.
-    // If the upgrade is successful, the version is set to the current version, because versionValue is empty.
-    // If the version is the same, do nothing.
-    if (versionValue != KS_VERSION)
+    if (!keystoreDB.get(KS_VERSION_FIELD, versionValue, columnFamily) || versionValue != KS_VERSION)
     {
         keystoreDB.put(KS_VERSION_FIELD, KS_VERSION, columnFamily);
     }
@@ -98,10 +43,8 @@ void Keystore::put(const std::string& columnFamily, const std::string& key, cons
     {
         keystoreDB.createColumn(columnFamily);
     }
-    // Upgrade the keystore if necessary and insert the key-value pair, to get all keys encrypted with the same
-    // algorithm. If the version field does not exist, it means that the keystore has not been upgraded yet. If the
-    // version is different from the current version, update it. If the upgrade fails, the version is set to the current
-    // version, because all keys have been deleted.
+
+    // Ensure the keystore version field is stamped before inserting.
     upgrade(keystoreDB, columnFamily);
 
     // Insert the key-value pair using AES encryption.
@@ -126,7 +69,7 @@ void Keystore::get(const std::string& columnFamily, const std::string& key, std:
         keystoreDB.createColumn(columnFamily);
     }
 
-    // Upgrade the keystore if necessary and get the key-value pair, to get all keys encrypted with the same algorithm.
+    // Ensure the keystore version field is stamped before reading.
     upgrade(keystoreDB, columnFamily);
 
     // Get the key-value pair using AES decryption.
@@ -156,7 +99,7 @@ std::string Keystore::get(const std::string& columnFamily, const std::string& ke
         keystoreDB.createColumn(columnFamily);
     }
 
-    // Upgrade the keystore if necessary and get the key-value pair, to get all keys encrypted with the same algorithm.
+    // Ensure the keystore version field is stamped before reading.
     upgrade(keystoreDB, columnFamily);
 
     // Get the key-value pair using AES decryption.

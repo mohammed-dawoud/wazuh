@@ -14,6 +14,7 @@
 #include "wmodules.h"
 #include "module_query_errors.h"
 #include "os_net.h"
+#include <signal.h>
 #include <sys/stat.h>
 #include "sha256_op.h"
 #include "expression.h"
@@ -53,9 +54,6 @@ static atomic_int_t g_n_msg_sent = ATOMIC_INT_INITIALIZER(0);
 // SCA sync protocol variables
 unsigned int sca_enable_synchronization = 1;     // Database synchronization enabled (default value)
 uint32_t sca_sync_interval = 300;                // Database synchronization interval (default value)
-uint32_t sca_sync_end_delay = 1;                 // Database synchronization end message delay in seconds (default value)
-uint32_t sca_sync_response_timeout = 60;         // Database synchronization response timeout (default value)
-long sca_sync_max_eps = 50;                     // Database synchronization number of events per second (default value)
 uint32_t sca_integrity_interval = 86400;         // Integrity check interval in seconds (default value, 0 = disabled)
 
 // Forward declarations
@@ -91,6 +89,7 @@ static void * wm_sca_sync_module(__attribute__((unused)) void * args);
 static void wm_sca_destroy(wm_sca_t * data);  // Destroy data
 static int wm_sca_start(wm_sca_t * data);  // Start
 static void wm_sca_stop(wm_sca_t* data);   // Stop
+static void wm_sca_release_resources(void);  // Release resources on the module thread
 
 cJSON *wm_sca_dump(const wm_sca_t * data);     // Read config
 
@@ -310,15 +309,6 @@ static void sca_log_callback(const modules_log_level_t level, const char* log, _
     }
 }
 
-// SCA message queue functions
-static int wm_sca_startmq(const char* key, short type, short attempts) {
-    return StartMQPredicated(key, type, attempts, wm_sca_is_shutting_down);
-}
-
-static int wm_sca_send_binary_msg(int queue, const void* message, size_t message_len, const char* locmsg, char loc) {
-    return SendBinaryMSG(queue, message, message_len, locmsg, loc);
-}
-
 static bool wm_sca_parse_query_int(const char* output, const char* field, int* value)
 {
     bool result = false;
@@ -458,8 +448,7 @@ static void wm_handle_sca_disable_and_notify_data_clean()
         // Set the sync protocol parameters
         if (sca_set_sync_parameters_ptr)
         {
-            MQ_Functions mq_funcs = {.start = wm_sca_startmq, .send_binary = wm_sca_send_binary_msg};
-            sca_set_sync_parameters_ptr(SCA_WM_NAME, SCA_SYNC_PROTOCOL_DB_PATH, &mq_funcs, sca_sync_end_delay, sca_sync_response_timeout, SCA_SYNC_RETRIES, sca_sync_max_eps, sca_integrity_interval);
+            sca_set_sync_parameters_ptr(SCA_WM_NAME, SCA_SYNC_PROTOCOL_DB_PATH, sca_integrity_interval);
         }
 
         sca_init_ptr = so_get_function_sym(sca_module, "sca_init");
@@ -514,6 +503,7 @@ DWORD WINAPI wm_sca_main(void *arg) {
 #else
 void * wm_sca_main(wm_sca_t * data) {
 #endif
+
     // If module is disabled, exit
     if (data->enabled) {
         mdebug1("Module enabled.");
@@ -564,19 +554,12 @@ void * wm_sca_main(wm_sca_t * data) {
         sca_enable_synchronization = data->sync.enable_synchronization;
         if (sca_enable_synchronization) {
             sca_sync_interval = data->sync.sync_interval;
-            sca_sync_end_delay = data->sync.sync_end_delay;
-            sca_sync_response_timeout = data->sync.sync_response_timeout;
-            sca_sync_max_eps = data->sync.sync_max_eps;
             sca_integrity_interval = data->sync.integrity_interval;
         }
 
         // Set the sync protocol parameters
         if (sca_set_sync_parameters_ptr) {
-            MQ_Functions mq_funcs = {
-                .start = wm_sca_startmq,
-                .send_binary = wm_sca_send_binary_msg
-            };
-            sca_set_sync_parameters_ptr(SCA_WM_NAME, SCA_SYNC_PROTOCOL_DB_PATH, &mq_funcs, sca_sync_end_delay, sca_sync_response_timeout, SCA_SYNC_RETRIES, sca_sync_max_eps, sca_integrity_interval);
+            sca_set_sync_parameters_ptr(SCA_WM_NAME, SCA_SYNC_PROTOCOL_DB_PATH, sca_integrity_interval);
         }
 
         // Set the yaml to cjson function
@@ -610,6 +593,20 @@ void * wm_sca_main(wm_sca_t * data) {
 
         if (wm_sca_is_shutting_down())
         {
+            // sca_init() already opened the databases; release them before returning
+            // on this early-exit path too, so the next process does not find them
+            // locked.
+            wm_sca_release_resources();
+
+            // Never reached wm_sca_start()/Run(): if scan_on_start was
+            // configured, that scan is still owed. Persisting the "not yet
+            // completed" state is Run()'s job (it never got a chance to run
+            // this time); this is just the observability half -- not silent
+            // (issue 38428).
+            if (data->scan_on_start) {
+                mdebug1("SCA exiting before Run() due to shutdown while waiting for agentd; "
+                        "scan_on_start scan will retry automatically on the next opportunity.");
+            }
 #ifdef WIN32
             return 0;
 #else
@@ -621,7 +618,6 @@ void * wm_sca_main(wm_sca_t * data) {
     }
 
     mdebug1("Starting module.");
-
     wm_sca_start(data);
 
 #ifdef WIN32
@@ -631,15 +627,40 @@ void * wm_sca_main(wm_sca_t * data) {
 #endif
 }
 
+// Release SCA resources. Always called from the SCA module thread.
+static void wm_sca_release_resources(void)
+{
+    // Runs on the SCA module thread, before it returns, so whoever joins that
+    // thread is guaranteed the teardown already completed. wm_sca_stop() does not
+    // need to wait for it a second time.
+    if (sca_release_resources_ptr)
+    {
+        sca_release_resources_ptr();
+        sca_release_resources_ptr = NULL;
+    }
+}
+
 static int wm_sca_start(wm_sca_t *sca) {
     // Initialize message queue
     g_sca_queue = StartMQPredicated(DEFAULTQUEUE, WRITE, INFINITE_OPENQ_ATTEMPTS, wm_sca_is_shutting_down);
     if (g_sca_queue < 0) {
         merror("Cannot initialize SCA message queue.");
+        // sca_init() already opened the databases, and StartMQPredicated only
+        // gives up when shutdown started mid-startup. Release the connections here
+        // instead of leaking them until process teardown.
+        wm_sca_release_resources();
         return -1;
     }
 
-    g_shutting_down = 0;
+    // g_shutting_down is deliberately NOT reset here. The shutdown loop signals every
+    // module before joining any of them, so wm_sca_stop() can have run before this
+    // point; since wm_sca_is_shutting_down() reads only this flag, clearing it would
+    // erase that stop and the module would run on through shutdown.
+    //
+    // Nothing is released here either. wm_sca_stop() sets the flag before calling
+    // quiesce(), which reads m_spSyncProtocol and m_asyncFlushController without
+    // m_resourcesMutex, so releasing from this thread could race it. The teardown stays
+    // on the normal exit path, after sca_start_ptr() has returned.
     atomic_int_set(&g_n_msg_sent, 0);
 
     mdebug1("SCA message queue initialized successfully.");
@@ -704,11 +725,7 @@ static int wm_sca_start(wm_sca_t *sca) {
 
     // Safe to release resources now that both the sync worker and the main SCA
     // run loop have exited.  m_dBSync is no longer referenced by any thread.
-    if (sca_release_resources_ptr)
-    {
-        sca_release_resources_ptr();
-        sca_release_resources_ptr = NULL;
-    }
+    wm_sca_release_resources();
 
     return 0;
 }
@@ -726,10 +743,12 @@ void wm_sca_stop(__attribute__((unused)) wm_sca_t* data)
     g_shutting_down = 1;
     sca_sync_module_running = 0;
 
-    // Quiesce the sync protocol and the main SCA loop.  Resource teardown
-    // (join + releaseResources) is deferred to wm_sca_start() after
-    // sca_start_ptr() returns, so that we do not free m_dBSync while the
-    // SCA run loop is still using it.
+    // Signal only: quiesce the sync protocol and the main SCA loop and return.
+    // wm_sca_main() runs the teardown (join + releaseResources(), deferred until
+    // after sca_start_ptr() returns so we don't free m_dBSync while the SCA run
+    // loop is still using it) before its thread exits, so the caller's join of
+    // that thread is what guarantees the SQLite connection is closed.
+
     if (sca_stop_ptr) {
         sca_stop_ptr();
     }
@@ -750,7 +769,9 @@ cJSON *wm_sca_dump(const wm_sca_t * data) {
         int i;
         for (i=0;data->policies[i];i++) {
             if(data->policies[i]->enabled == 1){
-                cJSON_AddStringToObject(policies, "policy", data->policies[i]->policy_path);
+                cJSON *policy_entry = cJSON_CreateObject();
+                cJSON_AddStringToObject(policy_entry, "policy", data->policies[i]->policy_path);
+                cJSON_AddItemToArray(policies, policy_entry);
             }
         }
         cJSON_AddItemToObject(wm_wd,"policies", policies);
@@ -762,8 +783,6 @@ cJSON *wm_sca_dump(const wm_sca_t * data) {
     cJSON_AddNumberToObject(synchronization, "sync_end_delay", data->sync.sync_end_delay);
     cJSON_AddNumberToObject(synchronization, "interval", data->sync.sync_interval);
     cJSON_AddNumberToObject(synchronization, "max_eps", data->sync.sync_max_eps);
-    cJSON_AddNumberToObject(synchronization, "response_timeout", data->sync.sync_response_timeout);
-
     cJSON_AddItemToObject(wm_wd, "synchronization", synchronization);
 
     cJSON_AddItemToObject(root,"sca",wm_wd);
@@ -783,16 +802,21 @@ static int wm_sca_send_stateless(const char* message) {
     mdebug1("Sending SCA event: %s", message);
 
     if (SendMSGPredicated(g_sca_queue, message, "sca", SCA_MQ, wm_sca_is_shutting_down) < 0) {
-        merror("Error sending message to queue");
+        if (wm_sca_is_shutting_down()) {
+            return -1;
+        }
+
+        mdebug1("Failed to send message to queue, attempting reconnection.");
 
         if ((g_sca_queue = StartMQPredicated(DEFAULTQUEUE, WRITE, INFINITE_OPENQ_ATTEMPTS, wm_sca_is_shutting_down)) < 0) {
-            merror("Cannot restart SCA message queue");
             return -1;
         }
 
         // Try to send it again
         if (SendMSGPredicated(g_sca_queue, message, "sca", SCA_MQ, wm_sca_is_shutting_down) < 0) {
-            merror("Error sending message to queue after restart");
+            if (!wm_sca_is_shutting_down()) {
+                merror("Error sending message to queue after restart");
+            }
             return -1;
         }
     }
@@ -845,6 +869,10 @@ int wm_sca_sync_message(const char *command, size_t command_len) {
 DWORD WINAPI wm_sca_sync_module(__attribute__((unused)) void * args) {
 #else
 void * wm_sca_sync_module(__attribute__((unused)) void * args) {
+    sigset_t sigset;
+    sigemptyset(&sigset);
+    sigaddset(&sigset, SIGTERM);
+    pthread_sigmask(SIG_BLOCK, &sigset, NULL);
 #endif
     bool first_sync_completed = false;
     bool wait_before_sync = true;
@@ -954,6 +982,15 @@ static size_t wm_sca_query_handler(void *data, char *query, char **output) {
 
     if (!query || !output) {
         return 0;
+    }
+
+    // Mirrors #36762 (FIM): when synchronization is disabled the sync worker never runs, so the SCA
+    // first-sync marker is never set. Report it as completed so agent-info coordination is not blocked
+    // deferring on a first sync that will never happen. The startup priming path calls sca_query_ptr
+    // directly and is unaffected by this handler-level short-circuit.
+    if (!sca_enable_synchronization && strstr(query, "get_first_sync_completed")) {
+        os_strdup("{\"error\":0,\"data\":{\"action\":\"get_first_sync_completed\",\"module\":\"sca\",\"first_sync_completed\":1}}", *output);
+        return strlen(*output);
     }
 
     // Call the C++ query function if available

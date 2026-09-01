@@ -12,6 +12,23 @@
 #include "logging_helper.hpp"
 #include <filesystem>
 
+namespace
+{
+    constexpr size_t SYNC_BLOCK_ESTIMATED_OVERHEAD_BYTES = 8U * 1024U;
+    constexpr size_t SYNC_ITEM_ESTIMATED_OVERHEAD_BYTES = 512U;
+
+    /// @brief Consecutive cycles a lone oversized item is resent before it is dropped.
+    constexpr unsigned int MAX_OVERSIZED_ATTEMPTS = 5U;
+
+    size_t estimateSerializedItemBytes(const PersistedData& data)
+    {
+        return data.id.size()
+               + data.index.size()
+               + data.data.size()
+               + SYNC_ITEM_ESTIMATED_OVERHEAD_BYTES;
+    }
+} // namespace
+
 PersistentQueueStorage::PersistentQueueStorage(const std::string& dbPath, LoggerFunc logger, std::shared_ptr<IFileSystemWrapper> fileSystemWrapper)
     : m_connection(createOrOpenDatabase(dbPath)),
       m_dbPath(dbPath),
@@ -26,7 +43,7 @@ PersistentQueueStorage::PersistentQueueStorage(const std::string& dbPath, Logger
     try
     {
         createTableIfNotExists();
-        m_connection.execute("PRAGMA synchronous = NORMAL;");
+        m_connection.execute("PRAGMA synchronous = OFF;");
         m_connection.execute("PRAGMA journal_mode = WAL;");
     }
     // LCOV_EXCL_START
@@ -72,96 +89,71 @@ void PersistentQueueStorage::createTableIfNotExists()
     // LCOV_EXCL_STOP
 }
 
-void PersistentQueueStorage::submitOrCoalesce(const PersistedData& newData)
+void PersistentQueueStorage::applyCoalesceLogic(const PersistedData& newData)
 {
-    m_connection.execute("BEGIN IMMEDIATE TRANSACTION;");
+    bool oldDataFound = false;
+    CreateStatus oldCreateStatus = CreateStatus::EXISTING;
+    CreateStatus newCreateStatus = CreateStatus::EXISTING;
+    SyncStatus oldSyncStatus = SyncStatus::PENDING;
+    SyncStatus newSyncStatus = SyncStatus::PENDING;
+    Operation oldOperationSyncing = Operation::NO_OP;
+    Operation newOperationSyncing = Operation::NO_OP;
+    int oldOperation = -1;
 
-    try
+    const std::string findQuery = "SELECT operation, sync_status, create_status, operation_syncing FROM persistent_queue WHERE id = ?;";
+    SQLite3Wrapper::Statement findStmt(m_connection, findQuery);
+    findStmt.bind(1, newData.id);
+
+    if (findStmt.step() == SQLITE_ROW)
     {
-        bool oldDataFound = false;
-        CreateStatus oldCreateStatus = CreateStatus::EXISTING;
-        CreateStatus newCreateStatus = CreateStatus::EXISTING;
-        SyncStatus oldSyncStatus = SyncStatus::PENDING;
-        SyncStatus newSyncStatus = SyncStatus::PENDING;
-        Operation oldOperationSyncing = Operation::NO_OP;
-        Operation newOperationSyncing = Operation::NO_OP;
-        int oldOperation = -1;
+        oldOperation = findStmt.value<int>(0);
+        oldSyncStatus = static_cast<SyncStatus>(findStmt.value<int>(1));
+        oldCreateStatus = static_cast<CreateStatus>(findStmt.value<int>(2));
+        oldOperationSyncing = static_cast<Operation>(findStmt.value<int>(3));
+        oldDataFound = true;
+    }
 
-        const std::string findQuery = "SELECT operation, sync_status, create_status, operation_syncing FROM persistent_queue WHERE id = ?;";
-        SQLite3Wrapper::Statement findStmt(m_connection, findQuery);
-        findStmt.bind(1, newData.id);
+    if (oldSyncStatus != SyncStatus::PENDING)
+    {
+        newOperationSyncing = (oldOperationSyncing == Operation::NO_OP)
+                              ? static_cast<Operation>(oldOperation)
+                              : oldOperationSyncing;
+    }
 
-        if (findStmt.step() == SQLITE_ROW)
+    if (!oldDataFound)
+    {
+        const std::string insertQuery = "INSERT INTO persistent_queue (id, idx, data, operation, version, create_status, is_data_context) VALUES (?, ?, ?, ?, ?, ?, ?);";
+        SQLite3Wrapper::Statement insertStmt(m_connection, insertQuery);
+        insertStmt.bind(1, newData.id);
+        insertStmt.bind(2, newData.index);
+        insertStmt.bind(3, newData.data);
+        insertStmt.bind(4, static_cast<int>(newData.operation));
+        insertStmt.bind(5, static_cast<int64_t>(newData.version));
+        insertStmt.bind(6, (newData.operation == Operation::CREATE)
+                        ? static_cast<int>(CreateStatus::NEW)
+                        : static_cast<int>(CreateStatus::EXISTING));
+        insertStmt.bind(7, newData.is_data_context ? 1 : 0);
+        insertStmt.step();
+    }
+    else
+    {
+        newSyncStatus = (oldSyncStatus == SyncStatus::PENDING)
+                        ? SyncStatus::PENDING
+                        : SyncStatus::SYNCING_UPDATED;
+
+        if (newData.operation == Operation::DELETE_)
         {
-            oldOperation = findStmt.value<int>(0);
-            oldSyncStatus = static_cast<SyncStatus>(findStmt.value<int>(1));
-            oldCreateStatus = static_cast<CreateStatus>(findStmt.value<int>(2));
-            oldOperationSyncing = static_cast<Operation>(findStmt.value<int>(3));
-            oldDataFound = true;
-        }
-
-        if (oldSyncStatus != SyncStatus::PENDING)
-        {
-            newOperationSyncing = (oldOperationSyncing == Operation::NO_OP)
-                                  ? static_cast<Operation>(oldOperation)
-                                  : oldOperationSyncing;
-        }
-
-        if (!oldDataFound)
-        {
-            const std::string insertQuery = "INSERT INTO persistent_queue (id, idx, data, operation, version, create_status, is_data_context) VALUES (?, ?, ?, ?, ?, ?, ?);";
-            SQLite3Wrapper::Statement insertStmt(m_connection, insertQuery);
-            insertStmt.bind(1, newData.id);
-            insertStmt.bind(2, newData.index);
-            insertStmt.bind(3, newData.data);
-            insertStmt.bind(4, static_cast<int>(newData.operation));
-            insertStmt.bind(5, static_cast<int64_t>(newData.version));
-            insertStmt.bind(6, (newData.operation == Operation::CREATE)
-                            ? static_cast<int>(CreateStatus::NEW)
-                            : static_cast<int>(CreateStatus::EXISTING));
-            insertStmt.bind(7, newData.is_data_context ? 1 : 0);
-            insertStmt.step();
-        }
-        else
-        {
-            newSyncStatus = (oldSyncStatus == SyncStatus::PENDING)
-                            ? SyncStatus::PENDING
-                            : SyncStatus::SYNCING_UPDATED;
-
-            if (newData.operation == Operation::DELETE_)
+            if (oldCreateStatus == CreateStatus::NEW && oldSyncStatus == SyncStatus::PENDING)
             {
-                if (oldCreateStatus == CreateStatus::NEW && oldSyncStatus == SyncStatus::PENDING)
-                {
-                    const std::string deleteQuery = "DELETE FROM persistent_queue WHERE id = ?;";
-                    SQLite3Wrapper::Statement deleteStmt(m_connection, deleteQuery);
-                    deleteStmt.bind(1, newData.id);
-                    deleteStmt.step();
-                }
-                else
-                {
-                    newCreateStatus = (oldCreateStatus == CreateStatus::NEW)
-                                      ? CreateStatus::NEW_DELETED
-                                      : oldCreateStatus;
-
-                    const std::string updateQuery =
-                        "UPDATE persistent_queue SET idx = ?, data = ?, operation = ?, version = ?, sync_status = ?, create_status = ?, operation_syncing = ?, is_data_context = ? WHERE id = ?;";
-                    SQLite3Wrapper::Statement updateStmt(m_connection, updateQuery);
-                    updateStmt.bind(1, newData.index);
-                    updateStmt.bind(2, newData.data);
-                    updateStmt.bind(3, static_cast<int>(Operation::DELETE_));
-                    updateStmt.bind(4, static_cast<int64_t>(newData.version));
-                    updateStmt.bind(5, static_cast<int>(newSyncStatus));
-                    updateStmt.bind(6, static_cast<int>(newCreateStatus));
-                    updateStmt.bind(7, static_cast<int>(newOperationSyncing));
-                    updateStmt.bind(8, newData.is_data_context ? 1 : 0);
-                    updateStmt.bind(9, newData.id);
-                    updateStmt.step();
-                }
+                const std::string deleteQuery = "DELETE FROM persistent_queue WHERE id = ?;";
+                SQLite3Wrapper::Statement deleteStmt(m_connection, deleteQuery);
+                deleteStmt.bind(1, newData.id);
+                deleteStmt.step();
             }
             else
             {
-                newCreateStatus = (oldCreateStatus == CreateStatus::NEW_DELETED)
-                                  ? CreateStatus::NEW
+                newCreateStatus = (oldCreateStatus == CreateStatus::NEW)
+                                  ? CreateStatus::NEW_DELETED
                                   : oldCreateStatus;
 
                 const std::string updateQuery =
@@ -169,7 +161,7 @@ void PersistentQueueStorage::submitOrCoalesce(const PersistedData& newData)
                 SQLite3Wrapper::Statement updateStmt(m_connection, updateQuery);
                 updateStmt.bind(1, newData.index);
                 updateStmt.bind(2, newData.data);
-                updateStmt.bind(3, static_cast<int>(newData.operation));
+                updateStmt.bind(3, static_cast<int>(Operation::DELETE_));
                 updateStmt.bind(4, static_cast<int64_t>(newData.version));
                 updateStmt.bind(5, static_cast<int>(newSyncStatus));
                 updateStmt.bind(6, static_cast<int>(newCreateStatus));
@@ -179,7 +171,36 @@ void PersistentQueueStorage::submitOrCoalesce(const PersistedData& newData)
                 updateStmt.step();
             }
         }
+        else
+        {
+            newCreateStatus = (oldCreateStatus == CreateStatus::NEW_DELETED)
+                              ? CreateStatus::NEW
+                              : oldCreateStatus;
 
+            const std::string updateQuery =
+                "UPDATE persistent_queue SET idx = ?, data = ?, operation = ?, version = ?, sync_status = ?, create_status = ?, operation_syncing = ?, is_data_context = ? WHERE id = ?;";
+            SQLite3Wrapper::Statement updateStmt(m_connection, updateQuery);
+            updateStmt.bind(1, newData.index);
+            updateStmt.bind(2, newData.data);
+            updateStmt.bind(3, static_cast<int>(newData.operation));
+            updateStmt.bind(4, static_cast<int64_t>(newData.version));
+            updateStmt.bind(5, static_cast<int>(newSyncStatus));
+            updateStmt.bind(6, static_cast<int>(newCreateStatus));
+            updateStmt.bind(7, static_cast<int>(newOperationSyncing));
+            updateStmt.bind(8, newData.is_data_context ? 1 : 0);
+            updateStmt.bind(9, newData.id);
+            updateStmt.step();
+        }
+    }
+}
+
+void PersistentQueueStorage::submitOrCoalesce(const PersistedData& newData)
+{
+    m_connection.execute("BEGIN IMMEDIATE TRANSACTION;");
+
+    try
+    {
+        applyCoalesceLogic(newData);
         m_connection.execute("COMMIT;");
     }
     // LCOV_EXCL_START
@@ -193,16 +214,47 @@ void PersistentQueueStorage::submitOrCoalesce(const PersistedData& newData)
     // LCOV_EXCL_STOP
 }
 
-std::vector<PersistedData> PersistentQueueStorage::fetchAndMarkForSync()
+void PersistentQueueStorage::submitBatch(const std::vector<PersistedData>& batch)
 {
-    std::vector<PersistedData> result;
-    std::vector<int64_t> idsToUpdate;
+    if (batch.empty())
+    {
+        return;
+    }
 
     m_connection.execute("BEGIN IMMEDIATE TRANSACTION;");
 
     try
     {
-        std::string selectQuery =
+        for (const auto& item : batch)
+        {
+            applyCoalesceLogic(item);
+        }
+
+        m_connection.execute("COMMIT;");
+    }
+    // LCOV_EXCL_START
+    catch (const std::exception& e)
+    {
+        m_logger(LOG_ERROR, std::string("PersistentQueueStorage: Transaction failed in submitBatch: ") + e.what());
+        m_connection.execute("ROLLBACK;");
+        throw;
+    }
+
+    // LCOV_EXCL_STOP
+}
+
+std::vector<PersistedData> PersistentQueueStorage::fetchAndMarkForSync(size_t maxBytes)
+{
+    std::vector<PersistedData> result;
+    std::vector<int64_t> idsToUpdate;
+    std::vector<int64_t> idsToDrop;
+    size_t estimatedBytes = SYNC_BLOCK_ESTIMATED_OVERHEAD_BYTES;
+
+    m_connection.execute("BEGIN IMMEDIATE TRANSACTION;");
+
+    try
+    {
+        const std::string selectQuery =
             "SELECT rowid, id, idx, data, operation, version, is_data_context "
             "FROM persistent_queue "
             "WHERE sync_status = ? "
@@ -221,9 +273,95 @@ std::vector<PersistedData> PersistentQueueStorage::fetchAndMarkForSync()
             data.operation = static_cast<Operation>(selectStmt.value<int>(4));
             data.version = static_cast<uint64_t>(selectStmt.value<int64_t>(5));
             data.is_data_context = selectStmt.value<int>(6) != 0;
+            const size_t estimatedItemBytes = estimateSerializedItemBytes(data);
 
+            if (maxBytes > 0 && estimatedBytes + estimatedItemBytes > maxBytes)
+            {
+                if (!result.empty())
+                {
+                    // Normal budget exhaustion: stop before adding this item.
+                    break;
+                }
+
+                if (data.id == m_oversizedItemId)
+                {
+                    ++m_oversizedItemAttempts;
+                }
+                else
+                {
+                    m_oversizedItemId = data.id;
+                    m_oversizedItemAttempts = 1;
+                }
+
+                if (m_oversizedItemAttempts > MAX_OVERSIZED_ATTEMPTS)
+                {
+                    // This item alone has exceeded the cap for MAX_OVERSIZED_ATTEMPTS
+                    // consecutive cycles: whatever rejected it before will reject it
+                    // again, and every item behind it (rowid ASC) is starved as long as
+                    // it stays PENDING. Drop it instead of resending it forever.
+                    m_logger(LOG_ERROR,
+                             "PersistentQueueStorage: Dropping pending item (~" +
+                             std::to_string(estimatedItemBytes) +
+                             " B) after " + std::to_string(m_oversizedItemAttempts) +
+                             " consecutive cycles alone over the byte cap (" +
+                             std::to_string(maxBytes) + " B); it was blocking every item behind it.");
+                    idsToDrop.push_back(rowid);
+                    m_oversizedItemId.clear();
+                    m_oversizedItemAttempts = 0;
+                    continue;
+                }
+
+                // First item already exceeds the cap. Enforcing the limit here
+                // would leave the item stuck in PENDING forever, so we accept it
+                // once but emit a WARNING so operators can investigate oversized records.
+                m_logger(LOG_WARNING,
+                         "PersistentQueueStorage: A single pending item (~" +
+                         std::to_string(estimatedItemBytes) +
+                         " B) exceeds the byte cap (" +
+                         std::to_string(maxBytes) +
+                         " B); sending it alone (attempt " +
+                         std::to_string(m_oversizedItemAttempts) + "/" +
+                         std::to_string(MAX_OVERSIZED_ATTEMPTS) +
+                         "). Consider reducing individual item size.");
+            }
+            else if (data.id == m_oversizedItemId)
+            {
+                // No longer alone over the cap (e.g. coalesced smaller): clear its streak.
+                m_oversizedItemId.clear();
+                m_oversizedItemAttempts = 0;
+            }
+
+            estimatedBytes += estimatedItemBytes;
             idsToUpdate.push_back(rowid);
             result.emplace_back(std::move(data));
+        }
+
+        // SQLite has a limit on the number of parameters in a single query
+        // (typically 999). To handle an unlimited number of ids, both batched
+        // statements below process them in chunks.
+        constexpr size_t BATCH_SIZE = 500;
+
+        for (size_t i = 0; i < idsToDrop.size(); i += BATCH_SIZE)
+        {
+            std::string deleteQuery = "DELETE FROM persistent_queue WHERE rowid IN (";
+
+            size_t batch_end = std::min(i + BATCH_SIZE, idsToDrop.size());
+
+            for (size_t j = i; j < batch_end; ++j)
+            {
+                deleteQuery += (j == i ? "?" : ",?");
+            }
+
+            deleteQuery += ");";
+
+            SQLite3Wrapper::Statement deleteStmt(m_connection, deleteQuery);
+
+            for (size_t j = i; j < batch_end; ++j)
+            {
+                deleteStmt.bind(static_cast<int32_t>((j - i) + 1), idsToDrop[j]);
+            }
+
+            deleteStmt.step();
         }
 
         if (idsToUpdate.empty())
@@ -231,11 +369,6 @@ std::vector<PersistedData> PersistentQueueStorage::fetchAndMarkForSync()
             m_connection.execute("COMMIT;");
             return result;
         }
-
-        // SQLite has a limit on the number of parameters in a single query
-        // (typically 999). To handle an unlimited number of pending items,
-        // we process the UPDATE statement in batches.
-        constexpr size_t BATCH_SIZE = 500;
 
         for (size_t i = 0; i < idsToUpdate.size(); i += BATCH_SIZE)
         {

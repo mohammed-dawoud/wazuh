@@ -13,7 +13,7 @@
 policy:
   id: "cis_postgresql_13"
   file: "cis_postgre-sql-13.yml"
-  name: "CIS Benchmark for PostgreSQL 13"
+  name: "CIS PostgreSQL 13 Benchmark v1.0.0"
   description: "This document, CIS PostgreSQL 13 Benchmark, provides prescriptive guidance for establishing a secure configuration posture for PostgreSQL 13."
   references:
     - https://www.cisecurity.org/cis-benchmarks/
@@ -62,7 +62,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -70,8 +70,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://linuxcommand.org/man_pages/runlevel8.html
       - https://linuxcommand.org/man_pages/chkconfig8.html
@@ -122,7 +134,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -130,8 +142,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/runtime-config-logging.html
     condition: all
@@ -177,7 +201,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -185,8 +209,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/runtime-config-logging.html
     condition: all
@@ -243,7 +279,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -251,8 +287,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/runtime-config-logging.html
     condition: all
@@ -294,7 +342,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -302,8 +350,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://man7.org/linux/man-pages/man3/strftime.3.html
       - https://www.postgresql.org/docs/current/runtime-config-logging.html
@@ -346,7 +406,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -354,8 +414,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
     condition: all
@@ -406,7 +478,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -414,8 +486,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:psql -U $user -h $host $db -c "SHOW log_truncate_on_rotation" -> r:\son'
@@ -444,7 +528,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -452,8 +536,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
     condition: all
@@ -483,7 +579,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -491,8 +587,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
     condition: all
@@ -523,7 +631,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -531,8 +639,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://tools.ietf.org/html/rfc3164 section-4.1.1
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
@@ -567,7 +687,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -575,8 +695,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://tools.ietf.org/html/rfc3164#section-4.1.3
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
@@ -607,7 +739,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -615,8 +747,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
     condition: none
@@ -652,7 +796,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -660,8 +804,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
     condition: none
@@ -692,7 +848,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -700,8 +856,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
     condition: all
@@ -732,7 +900,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -740,8 +908,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html+
     condition: all
@@ -771,7 +951,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -779,8 +959,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
     condition: all
@@ -809,7 +1001,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -817,8 +1009,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
     condition: all
@@ -852,7 +1056,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -860,8 +1064,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:psql -U $user -h $host $db -c "SHOW log_connections" -> r:\son'
@@ -892,7 +1108,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -900,8 +1116,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
     condition: all
@@ -929,7 +1157,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -937,8 +1165,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
     condition: all
@@ -971,7 +1211,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -979,8 +1219,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
     condition: all
@@ -1021,7 +1273,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1029,8 +1281,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://pgbadger.darold.net/
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
@@ -1061,7 +1325,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1069,8 +1333,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
     condition: all
@@ -1106,7 +1382,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1114,8 +1390,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/static/runtime-config-logging.html
       - https://en.wikipedia.org/wiki/Time_zone
@@ -1202,7 +1490,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1210,8 +1498,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.pgaudit.org/
     condition: all
@@ -1249,7 +1549,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1257,8 +1557,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://github.com/cybertec-postgresql/pg_permission
     condition: all
@@ -1286,7 +1598,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1294,8 +1606,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://github.com/pgaudit/set_user
     condition: all
@@ -1339,7 +1663,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1347,8 +1671,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/8/html/security_hardening/using-the-system-wide-cryptographic-policies_security-hardening#switching-the-system-to-fips-mode_using-the-system-wide-cryptographic-policies
       - https://csrc.nist.gov/CSRC/media/projects/cryptographic-module-validation-program/documents/security-policies/140sp1758.pdf
@@ -1371,7 +1707,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1379,8 +1715,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://www.postgresql.org/docs/current/static/ssl-tcp.html
       - http://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-52r1.pdf
@@ -1450,7 +1798,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1458,8 +1806,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - https://pgbackrest.org/
       - https://github.com/pgbackrest/pgbackrest

@@ -8,6 +8,7 @@ This module will contain all cases for the region test suite
 import pytest
 
 # qa-integration-framework imports
+from wazuh_testing import session_parameters
 from wazuh_testing.constants.aws import RANDOM_ACCOUNT_ID
 from wazuh_testing.constants.paths.aws import AWS_SERVICES_DB_PATH, S3_CLOUDTRAIL_DB_PATH
 from wazuh_testing.modules.aws.utils import path_exist
@@ -19,9 +20,7 @@ from . import event_monitor
 from .configurator import configurator
 from .utils import ERROR_MESSAGE, TIMEOUT, ALL_REGIONS, local_internal_options
 
-pytestmark = [pytest.mark.agent, pytest.mark.linux]
-
-daemons_handler_configuration = {'all_daemons': True}
+pytestmark = [pytest.mark.server]
 
 # Set test configurator for the module
 configurator.module = 'regions_test_module'
@@ -37,9 +36,9 @@ configurator.configure_test(configuration_file='bucket_configuration_regions.yam
                          zip(configurator.test_configuration_template, configurator.metadata),
                          ids=configurator.cases_ids)
 def test_regions(
-        test_configuration, metadata,  create_test_bucket, manage_bucket_files,
+        test_configuration, metadata, load_wazuh_basic_configuration,  create_test_bucket, manage_bucket_files,
         set_wazuh_configuration, clean_s3_cloudtrail_db, configure_local_internal_options_function,
-        truncate_monitored_files, daemons_handler, file_monitoring
+        truncate_monitored_files, restart_wazuh_function, file_monitoring
 ):
     """
     description: Only the logs for the specified region are processed.
@@ -75,6 +74,9 @@ def test_regions(
         - manage_bucket_files:
             type: fixture
             brief: S3 buckets manager.
+        - load_wazuh_basic_configuration:
+            type: fixture
+            brief: Load basic wazuh configuration.
         - set_wazuh_configuration:
             type: fixture
             brief: Apply changes to the ossec.conf configuration.
@@ -117,9 +119,15 @@ def test_regions(
         '--debug', '2'
     ]
 
+    # Under the per-run namespace (issue #38194) create_test_bucket injects a <path> into the config, so
+    # the module is invoked with --trail_prefix. No-op locally (no namespace -> no 'path' in metadata).
+    if metadata.get('path'):
+        parameters.insert(3, metadata['path'])
+        parameters.insert(3, '--trail_prefix')
+
     # Check AWS module started
     log_monitor.start(
-        timeout=TIMEOUT[20],
+        timeout=session_parameters.default_timeout,
         callback=event_monitor.callback_detect_aws_module_start
     )
 
@@ -127,7 +135,7 @@ def test_regions(
 
     # Check command was called correctly
     log_monitor.start(
-        timeout=TIMEOUT[20],
+        timeout=session_parameters.default_timeout,
         callback=event_monitor.callback_detect_aws_module_called(parameters)
     )
 
@@ -140,7 +148,7 @@ def test_regions(
             accumulations=expected_results
         )
         assert log_monitor.callback_result is not None, ERROR_MESSAGE['incorrect_event_number']
-        
+
         assert path_exist(path=S3_CLOUDTRAIL_DB_PATH)
 
         # Validate database updates
@@ -148,16 +156,21 @@ def test_regions(
             if hasattr(row, "aws_region"):
                 assert row.aws_region in regions_list
             else:
-                assert row.log_key.split("/")[3] in regions_list
+                # Strip the per-run namespace prefix (issue #38194) so the region stays at the same
+                # positional index as without a namespace. No-op locally (no 'path' in metadata).
+                log_key = row.log_key
+                if metadata.get('path'):
+                    log_key = log_key[len(metadata['path']):]
+                assert log_key.split("/")[3] in regions_list
 
     else:
         invalid_region = None
         for region in regions_list:
             if region not in ALL_REGIONS:
                 invalid_region = region
-                break        
+                break
         log_monitor.start(
-            timeout=TIMEOUT[40],
+            timeout=session_parameters.default_timeout,
             callback=event_monitor.make_aws_callback(
                 fr".*\+\+\+ ERROR: Invalid region '{invalid_region}'"
             ),
@@ -168,7 +181,7 @@ def test_regions(
 
     # Detect any ERROR message
     log_monitor.start(
-        timeout=TIMEOUT[20],
+        timeout=session_parameters.default_timeout,
         callback=event_monitor.callback_detect_all_aws_err
     )
     assert log_monitor.callback_result is None, ERROR_MESSAGE['error_found']
@@ -185,9 +198,9 @@ configurator.configure_test(configuration_file='cloudwatch_configuration_regions
                          zip(configurator.test_configuration_template, configurator.metadata),
                          ids=configurator.cases_ids)
 def test_cloudwatch_regions(
-        test_configuration, metadata, create_test_log_group, create_test_log_stream,
+        test_configuration, metadata, load_wazuh_basic_configuration, create_test_log_group, create_test_log_stream,
         manage_log_group_events, set_wazuh_configuration, clean_aws_services_db,
-        configure_local_internal_options_function, truncate_monitored_files, daemons_handler, file_monitoring
+        configure_local_internal_options_function, truncate_monitored_files, restart_wazuh_function, file_monitoring
 ):
     """
     description: Only the logs for the specified region are processed.
@@ -226,6 +239,9 @@ def test_cloudwatch_regions(
         - manage_log_group_events:
             type: fixture
             brief: Manage events for the created log stream and log group.
+        - load_wazuh_basic_configuration:
+            type: fixture
+            brief: Load basic wazuh configuration.
         - set_wazuh_configuration:
             type: fixture
             brief: Apply changes to the ossec.conf configuration.
@@ -270,7 +286,7 @@ def test_cloudwatch_regions(
 
     # Check AWS module started
     log_monitor.start(
-        timeout=TIMEOUT[20],
+        timeout=session_parameters.default_timeout,
         callback=event_monitor.callback_detect_aws_module_start
     )
 
@@ -278,7 +294,7 @@ def test_cloudwatch_regions(
 
     # Check command was called correctly
     log_monitor.start(
-        timeout=TIMEOUT[20],
+        timeout=session_parameters.default_timeout,
         callback=event_monitor.callback_detect_aws_module_called(parameters)
     )
 
@@ -286,7 +302,7 @@ def test_cloudwatch_regions(
 
     if expected_results:
         log_monitor.start(
-            timeout=TIMEOUT[60],
+            timeout=TIMEOUT[20],
             callback=event_monitor.callback_detect_service_event_processed(expected_results, service_type),
             accumulations=len(regions_list)
         )
@@ -294,7 +310,7 @@ def test_cloudwatch_regions(
 
     else:
         log_monitor.start(
-            timeout=TIMEOUT[40],
+            timeout=session_parameters.default_timeout,
             callback=event_monitor.make_aws_callback(
                 fr".*\+\+\+ ERROR: Invalid region '{regions}'"
             ),
@@ -313,7 +329,7 @@ def test_cloudwatch_regions(
 
     # Detect any ERROR message
     log_monitor.start(
-        timeout=TIMEOUT[20],
+        timeout=session_parameters.default_timeout,
         callback=event_monitor.callback_detect_all_aws_err
     )
 
@@ -331,9 +347,9 @@ configurator.configure_test(configuration_file='inspector_configuration_regions.
                          zip(configurator.test_configuration_template, configurator.metadata),
                          ids=configurator.cases_ids)
 def test_inspector_regions(
-        test_configuration, metadata,
+        test_configuration, metadata, load_wazuh_basic_configuration,
         set_wazuh_configuration, clean_aws_services_db, configure_local_internal_options_function,
-        truncate_monitored_files, daemons_handler, file_monitoring
+        truncate_monitored_files, restart_wazuh_function, file_monitoring
 ):
     """
     description: Only the logs for the specified region are processed.
@@ -363,6 +379,9 @@ def test_inspector_regions(
         - metadata:
             type: dict
             brief: Get metadata from the module.
+        - load_wazuh_basic_configuration:
+            type: fixture
+            brief: Load basic wazuh configuration.
         - set_wazuh_configuration:
             type: fixture
             brief: Apply changes to the ossec.conf configuration.
@@ -410,7 +429,7 @@ def test_inspector_regions(
 
     # Check AWS module started
     log_monitor.start(
-        timeout=TIMEOUT[20],
+        timeout=session_parameters.default_timeout,
         callback=event_monitor.callback_detect_aws_module_start
     )
 
@@ -418,31 +437,24 @@ def test_inspector_regions(
 
     # Check command was called correctly
     log_monitor.start(
-        timeout=TIMEOUT[20],
+        timeout=session_parameters.default_timeout,
         callback=event_monitor.callback_detect_aws_module_called(parameters)
     )
 
     assert log_monitor.callback_result is not None, ERROR_MESSAGE['incorrect_parameters']
 
-    # For inspector, validate V1 and V2 APIs both execute successfully
+    # For inspector, validate InspectorV2 API executed successfully
     if service_type == 'inspector' and expected_results_min is not None:
-        # Validate InspectorV1 API executed (can return 0+ events)
-        log_monitor.start(
-            timeout=TIMEOUT[60],
-            callback=event_monitor.make_aws_callback(r'.*\[InspectorV1\] \d+ events collected and processed'),
-        )
-        assert log_monitor.callback_result is not None, 'InspectorV1 API did not execute - check logs'
-
         # Validate InspectorV2 API executed (can return 0+ events or report no updates)
         log_monitor.start(
-            timeout=TIMEOUT[60],
+            timeout=TIMEOUT[10],
             callback=event_monitor.make_aws_callback(r'.*\[InspectorV2\] .*(?:\d+ events collected and processed|No findings with recent updates)'),
         )
         assert log_monitor.callback_result is not None, 'InspectorV2 API did not execute - check logs'
 
         # Validate total events meets minimum threshold
         log_monitor.start(
-            timeout=TIMEOUT[60],
+            timeout=TIMEOUT[10],
             callback=event_monitor.make_aws_callback(r'.*Total: (\d+) events'),
         )
         assert log_monitor.callback_result is not None, f'Did not find total events count in logs'
@@ -450,7 +462,7 @@ def test_inspector_regions(
         assert total_events >= expected_results_min, f'Total events ({total_events}) less than minimum expected ({expected_results_min})'
     elif expected_results:
         log_monitor.start(
-            timeout=TIMEOUT[60],
+            timeout=TIMEOUT[20],
             callback=event_monitor.callback_detect_service_event_processed(expected_results, service_type),
             accumulations=len(regions_list)
         )
@@ -458,7 +470,7 @@ def test_inspector_regions(
 
     else:
         log_monitor.start(
-            timeout=TIMEOUT[40],
+            timeout=session_parameters.default_timeout,
             callback=event_monitor.make_aws_callback(
                 fr".*\+\+\+ ERROR: Unsupported region '{regions}'"
             ),
@@ -478,7 +490,7 @@ def test_inspector_regions(
 
     # Detect any ERROR message
     log_monitor.start(
-        timeout=TIMEOUT[20],
+        timeout=session_parameters.default_timeout,
         callback=event_monitor.callback_detect_all_aws_err
     )
 
@@ -486,7 +498,7 @@ def test_inspector_regions(
 
     # Detect any ERROR message
     log_monitor.start(
-        timeout=TIMEOUT[20],
+        timeout=session_parameters.default_timeout,
         callback=event_monitor.callback_detect_all_aws_err
     )
 

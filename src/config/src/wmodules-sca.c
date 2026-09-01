@@ -82,7 +82,6 @@ static void parse_synchronization_section(wm_sca_t * sca, XML_NODE node)
     const char *XML_DB_SYNC_ENABLED = "enabled";
     const char *XML_DB_SYNC_INTERVAL = "interval";
     const char *XML_DB_SYNC_END_DELAY = "sync_end_delay";
-    const char *XML_DB_SYNC_RESPONSE_TIMEOUT = "response_timeout";
     const char *XML_DB_SYNC_MAX_EPS = "max_eps";
     const char *XML_DB_SYNC_INTEGRITY_INTERVAL = "integrity_interval";
 
@@ -111,14 +110,6 @@ static void parse_synchronization_section(wm_sca_t * sca, XML_NODE node)
             } else {
                 sca->sync.sync_end_delay = (uint32_t) sync_end_delay;
             }
-        } else if (strcmp(node[i]->element, XML_DB_SYNC_RESPONSE_TIMEOUT) == 0) {
-            long response_timeout = w_parse_time(node[i]->content);
-
-            if (response_timeout < 0 || (unsigned long)response_timeout > UINT32_MAX) {
-                mwarn(XML_VALUEERR, node[i]->element, node[i]->content);
-            } else {
-                sca->sync.sync_response_timeout = (uint32_t) response_timeout;
-            }
         } else if (strcmp(node[i]->element, XML_DB_SYNC_MAX_EPS) == 0) {
             char * end;
             const long value = strtol(node[i]->content, &end, 10);
@@ -143,10 +134,17 @@ static void parse_synchronization_section(wm_sca_t * sca, XML_NODE node)
 }
 
 // Reading function
-int wm_sca_read(const OS_XML *xml,xml_node **nodes, wmodule *module)
+int wm_sca_read(const OS_XML *xml,xml_node **nodes, wmodule *module, int agent_cfg)
 {
     unsigned int i;
     wm_sca_t *sca;
+
+    /* On the manager, agent.conf parsing must not activate the local ruleset. */
+    #ifdef CLIENT
+    const int skip_ruleset_load = 0;
+    #else
+    const int skip_ruleset_load = agent_cfg;
+    #endif
 
     if(!module->data) {
         os_calloc(1, sizeof(wm_sca_t), sca);
@@ -164,7 +162,6 @@ int wm_sca_read(const OS_XML *xml,xml_node **nodes, wmodule *module)
         sca->sync.enable_synchronization = 1;
         sca->sync.sync_interval = 300;
         sca->sync.sync_end_delay = 1;
-        sca->sync.sync_response_timeout = 60;
         sca->sync.sync_max_eps = 75;
         sca->sync.integrity_interval = 86400;
     }
@@ -173,82 +170,95 @@ int wm_sca_read(const OS_XML *xml,xml_node **nodes, wmodule *module)
 
     /* By default, load all every ruleset present */
 
-    char ruleset_path[PATH_MAX] = {0};
+    char ruleset_realpath[PATH_MAX] = {0};
     #ifdef WIN32
-    sprintf(ruleset_path, "%s\\", SECURITY_CONFIGURATION_ASSESSMENT_DIR_WIN);
+    if (!GetFullPathName(SECURITY_CONFIGURATION_ASSESSMENT_DIR_WIN, PATH_MAX, ruleset_realpath, NULL)) {
+        ruleset_realpath[0] = '\0';
+    }
     #else
-    sprintf(ruleset_path, "%s/", SECURITY_CONFIGURATION_ASSESSMENT_DIR);
+    if (!realpath(SECURITY_CONFIGURATION_ASSESSMENT_DIR, ruleset_realpath)) {
+        ruleset_realpath[0] = '\0';
+    }
     #endif
 
-    DIR *ruleset_dir = wopendir(ruleset_path);
-    const int open_dir_errno = errno;
-    if (ruleset_dir) {
-        struct dirent *dir_entry;
-        while ((dir_entry = readdir(ruleset_dir)) != NULL) {
-            if (strcmp(dir_entry->d_name, ".") == 0 || strcmp(dir_entry->d_name, "..") == 0) {
-                continue;
-            }
+    if (!skip_ruleset_load) {
+        char ruleset_path[PATH_MAX] = {0};
+        #ifdef WIN32
+        sprintf(ruleset_path, "%s\\", SECURITY_CONFIGURATION_ASSESSMENT_DIR_WIN);
+        #else
+        sprintf(ruleset_path, "%s/", SECURITY_CONFIGURATION_ASSESSMENT_DIR);
+        #endif
 
-            const char * const file_extension = strrchr(dir_entry->d_name, '.');
-            if (!file_extension || (strcmp(file_extension, ".yml") != 0 && strcmp(file_extension, ".yaml") != 0)) {
-                continue;
-            }
+        DIR *ruleset_dir = wopendir(ruleset_path);
+        const int open_dir_errno = errno;
+        if (ruleset_dir) {
+            struct dirent *dir_entry;
+            while ((dir_entry = readdir(ruleset_dir)) != NULL) {
+                if (strcmp(dir_entry->d_name, ".") == 0 || strcmp(dir_entry->d_name, "..") == 0) {
+                    continue;
+                }
 
-            /* get the full path of the policy file */
-            char relative_path[PATH_MAX] = {0};
-            const int ruleset_path_len = sprintf(relative_path, "%s", ruleset_path);
-            strncat(relative_path, dir_entry->d_name, PATH_MAX - ruleset_path_len);
+                const char * const file_extension = strrchr(dir_entry->d_name, '.');
+                if (!file_extension || (strcmp(file_extension, ".yml") != 0 && strcmp(file_extension, ".yaml") != 0)) {
+                    continue;
+                }
 
-            char realpath_buffer[PATH_MAX] = {0};
-            #ifdef WIN32
-            const int path_length = GetFullPathName(relative_path, PATH_MAX, realpath_buffer, NULL);
-            if (!path_length) {
-                mwarn("File '%s' not found.", dir_entry->d_name);
-                continue;
-            }
-            #else
-            const char * const realpath_buffer_ref = realpath(relative_path, realpath_buffer);
-            if (!realpath_buffer_ref) {
-                mwarn("File '%s' not found.", dir_entry->d_name);
-                continue;
-            }
-            #endif
+                /* get the full path of the policy file */
+                char relative_path[PATH_MAX] = {0};
+                const int ruleset_path_len = sprintf(relative_path, "%s", ruleset_path);
+                strncat(relative_path, dir_entry->d_name, PATH_MAX - ruleset_path_len);
 
-            int policy_found = 0;
+                char realpath_buffer[PATH_MAX] = {0};
+                #ifdef WIN32
+                const int path_length = GetFullPathName(relative_path, PATH_MAX, realpath_buffer, NULL);
+                if (!path_length) {
+                    mwarn("File '%s' not found.", dir_entry->d_name);
+                    continue;
+                }
+                #else
+                const char * const realpath_buffer_ref = realpath(relative_path, realpath_buffer);
+                if (!realpath_buffer_ref) {
+                    mwarn("File '%s' not found.", dir_entry->d_name);
+                    continue;
+                }
+                #endif
 
-            if (sca->policies) {
-                int i;
-                for(i = 0; sca->policies[i]; i++) {
-                    if(sca->policies[i]->policy_path && !strcmp(sca->policies[i]->policy_path, realpath_buffer)) {
-                        /* Avoid adding policies by default for each xml configuration block.
-                        This happens because wm_sca_read function is called once for each xml
-                        configuration block */
-                        policy_found = 1;
-                        break;
+                int policy_found = 0;
+
+                if (sca->policies) {
+                    int i;
+                    for(i = 0; sca->policies[i]; i++) {
+                        if(sca->policies[i]->policy_path && !strcmp(sca->policies[i]->policy_path, realpath_buffer)) {
+                            /* Avoid adding policies by default for each xml configuration block.
+                            This happens because wm_sca_read function is called once for each xml
+                            configuration block */
+                            policy_found = 1;
+                            break;
+                        }
                     }
                 }
+
+                if (policy_found) {
+                    continue;
+                }
+
+                os_realloc(sca->policies, (policies_count + 2) * sizeof(wm_sca_policy_t *), sca->policies);
+                wm_sca_policy_t *policy;
+                os_calloc(1,sizeof(wm_sca_policy_t),policy);
+
+                policy->enabled = 1;
+                policy->policy_id = NULL;
+                policy->remote = 0;
+                os_strdup(realpath_buffer, policy->policy_path);
+                sca->policies[policies_count] = policy;
+                sca->policies[policies_count + 1] = NULL;
+                policies_count++;
             }
 
-            if (policy_found) {
-                continue;
-            }
-
-            os_realloc(sca->policies, (policies_count + 2) * sizeof(wm_sca_policy_t *), sca->policies);
-            wm_sca_policy_t *policy;
-            os_calloc(1,sizeof(wm_sca_policy_t),policy);
-
-            policy->enabled = 1;
-            policy->policy_id = NULL;
-            policy->remote = 0;
-            os_strdup(realpath_buffer, policy->policy_path);
-            sca->policies[policies_count] = policy;
-            sca->policies[policies_count + 1] = NULL;
-            policies_count++;
+            closedir(ruleset_dir);
+        } else {
+            minfo("Could not open the default SCA ruleset folder '%s': %s", ruleset_path, strerror(open_dir_errno));
         }
-
-        closedir(ruleset_dir);
-    } else {
-        minfo("Could not open the default SCA ruleset folder '%s': %s", ruleset_path, strerror(open_dir_errno));
     }
 
     if (!nodes) {
@@ -408,11 +418,18 @@ int wm_sca_read(const OS_XML *xml,xml_node **nodes, wmodule *module)
                         os_calloc(1,sizeof(wm_sca_policy_t), policy);
                         policy->enabled = enabled;
                         policy->policy_id = NULL;
-                        #ifdef WIN32
-                        policy->remote = strstr(realpath_buffer, "shared\\") != NULL;
-                        #else
-                        policy->remote = strstr(realpath_buffer, "etc/shared/") != NULL;
-                        #endif
+                        {
+                            size_t ruleset_len = strlen(ruleset_realpath);
+                            #ifdef WIN32
+                            const char ruleset_sep = '\\';
+                            #else
+                            const char ruleset_sep = '/';
+                            #endif
+                            /* Only a path actually anchored at the resolved ruleset directory counts as local. */
+                            int under_ruleset = ruleset_len && !strncmp(realpath_buffer, ruleset_realpath, ruleset_len) &&
+                                                (realpath_buffer[ruleset_len] == ruleset_sep || realpath_buffer[ruleset_len] == '\0');
+                            policy->remote = agent_cfg && !under_ruleset;
+                        }
                         os_strdup(realpath_buffer, policy->policy_path);
                         sca->policies[policies_count] = policy;
                         sca->policies[policies_count + 1] = NULL;

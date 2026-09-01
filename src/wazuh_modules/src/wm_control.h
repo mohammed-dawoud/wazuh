@@ -32,7 +32,7 @@ wmodule *wm_control_read();
  * On manager builds, acts on "wazuh-manager"; on agent builds, on "wazuh-agent".
  * Supported commands: restart, reload
  *
- * @param command Command string with optional arguments
+ * @param command Exact command string without arguments
  * @param output Pointer to string that will contain the response message
  * @return size_t Length of the output string
  */
@@ -55,10 +55,21 @@ bool wm_control_check_systemd();
 bool wm_control_wait_for_service_active(const char *service);
 
 /**
+ * @brief Get the control binary path used by the direct-exec fallback
+ *
+ * Selected at compile time: "bin/wazuh-control" on agent builds (CLIENT),
+ * "bin/wazuh-manager-control" on manager builds. The path is relative to the
+ * install directory (modulesd chdir()s there at startup).
+ *
+ * @return const char* Relative path to the control binary
+ */
+const char *wm_control_get_bin(void);
+
+/**
  * @brief Execute restart or reload action on a Wazuh service
  *
- * Detects if systemd is available and uses systemctl, otherwise falls back to wazuh-control.
- * For reload actions, waits for service to be active before proceeding (systemd only).
+ * Manager builds delegate the action to the restricted privileged service control. Agent
+ * builds use systemctl when available and otherwise fall back to the control binary.
  *
  * @param action "restart" or "reload"
  * @param service Service name (e.g. "wazuh-manager", "wazuh-agent")

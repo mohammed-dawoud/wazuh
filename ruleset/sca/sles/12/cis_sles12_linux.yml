@@ -39,7 +39,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -47,8 +47,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - AJ Lewis, "LVM HOWTO", https://tldp.org/HOWTO/LVM-HOWTO/
     condition: all
@@ -64,7 +76,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -72,8 +84,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:mount -> r:\s/tmp\s && r:nodev'
@@ -87,7 +111,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -95,8 +119,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:mount -> r:\s/tmp\s && r:nosuid'
@@ -111,7 +147,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -119,8 +155,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:mount -> r:\s/tmp\s && r:noexec'
@@ -135,7 +183,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -143,8 +191,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - AJ Lewis, "LVM HOWTO", https://tldp.org/HOWTO/LVM-HOWTO/
     condition: all
@@ -160,7 +220,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -168,8 +228,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - AJ Lewis, "LVM HOWTO", https://tldp.org/HOWTO/LVM-HOWTO/
     condition: all
@@ -186,7 +258,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -194,8 +266,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - AJ Lewis, "LVM HOWTO", https://tldp.org/HOWTO/LVM-HOWTO/
     condition: all
@@ -212,7 +296,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -220,8 +304,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     references:
       - AJ Lewis, "LVM HOWTO", https://tldp.org/HOWTO/LVM-HOWTO/
     condition: all
@@ -238,7 +334,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -246,8 +342,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:mount -> r:\s/home\s && r:nodev'
@@ -262,7 +370,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -270,8 +378,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:mount -> r:\s/dev/shm\s && r:nodev'
@@ -286,7 +406,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -294,8 +414,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:mount -> r:\s/dev/shm\s && r:nosuid'
@@ -310,7 +442,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -318,8 +450,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:mount -> r:\s/dev/shm\s && r:noexec'
@@ -337,7 +481,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -345,8 +489,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:grep -Rh ^*[[:space:]]*hard[[:space:]][[:space:]]*core[[:space:]][[:space:]]* /etc/security/limits.conf /etc/security/limits.d -> r:\s*\t*0$'
@@ -363,7 +519,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -371,8 +527,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:grep -Rh ^kernel\.randomize_va_space /etc/sysctl.conf /etc/sysctl.d -> r:^\s*kernel\.randomize_va_space\s*=\s*2$'
@@ -394,7 +562,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -402,8 +570,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:chkconfig --list -> r:chargen:|chargen-udp: && r::on"
@@ -417,7 +597,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -425,8 +605,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:chkconfig --list -> r:daytime:|daytime-udp && r::on"
@@ -440,7 +632,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -448,8 +640,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:chkconfig --list -> r:discard:|discard-udp: && r::on"
@@ -463,7 +667,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -471,8 +675,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:chkconfig --list -> r:echo:|echo-udp: && r::on"
@@ -486,7 +702,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -494,8 +710,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:chkconfig --list -> r:time:|time-udp && r::on"
@@ -509,7 +737,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -517,8 +745,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:chkconfig --list -> r:rexec:|rlogin:|rsh: && r::on"
@@ -532,7 +772,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -540,8 +780,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:chkconfig --list -> r:talk: && r::on"
@@ -555,7 +807,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -563,8 +815,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:chkconfig --list -> r:telnet: && r::on"
@@ -578,7 +842,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -586,8 +850,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:chkconfig --list -> r:tftp: && r::on"
@@ -601,7 +877,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -609,8 +885,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:chkconfig --list -> r:rsync: && r::on"
@@ -624,7 +912,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -632,8 +920,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:systemctl is-enabled xinetd -> r:enabled"
@@ -650,7 +950,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -658,8 +958,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'f:/etc/ntp.conf -> r:^restrict\s+-4\s+default|^restrict\s+default && r:\s+kod && r:\s+nomodify && r:\s+notrap && r:\s+nopeer && r:\s+noquery'
@@ -677,7 +989,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -685,8 +997,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:rpm -qa xorg-x11* -> r:^xorg-x11"
@@ -701,7 +1025,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -709,8 +1033,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:systemctl is-enabled avahi-daemon -> r:enabled"
@@ -724,7 +1060,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -732,8 +1068,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:systemctl is-enabled dhcpd -> r:enabled"
@@ -748,7 +1096,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -756,8 +1104,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:systemctl is-enabled nfs -> r:enabled"
@@ -772,7 +1132,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -780,8 +1140,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:systemctl is-enabled named -> r:enabled"
@@ -795,7 +1167,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -803,8 +1175,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:systemctl is-enabled vsftpd -> r:enabled"
@@ -819,7 +1203,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -827,8 +1211,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:systemctl is-enabled apache2 -> r:enabled"
@@ -842,7 +1238,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -850,8 +1246,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:systemctl is-enabled dovecot -> r:enabled"
@@ -866,7 +1274,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -874,8 +1282,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:systemctl is-enabled smb -> r:enabled"
@@ -889,7 +1309,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -897,8 +1317,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:systemctl is-enabled squid -> r:enabled"
@@ -912,7 +1344,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -920,8 +1352,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:systemctl is-enabled snmpd -> r:enabled"
@@ -935,7 +1379,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -943,8 +1387,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:systemctl is-enabled ypserv -> r:enabled"
@@ -959,7 +1415,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -967,8 +1423,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - "c:rpm -qa ypbind -> r:ypbind"
@@ -989,7 +1457,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -997,8 +1465,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:sysctl net.ipv4.ip_forward -> r:\s0$'
@@ -1014,7 +1494,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1022,8 +1502,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:sysctl net.ipv4.conf.all.send_redirects -> r:^net\.ipv4\.conf\.all\.send_redirects\s*=\s*0$'
@@ -1044,7 +1536,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1052,8 +1544,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:sysctl net.ipv4.conf.all.accept_source_route -> r:^net\.ipv4\.conf\.all\.accept_source_route\s*=\s*0$'
@@ -1071,7 +1575,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1079,8 +1583,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:sysctl net.ipv4.conf.all.accept_redirects -> r:^net\.ipv4\.conf\.all\.accept_redirects\s*=\s*0$'
@@ -1098,7 +1614,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1106,8 +1622,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:sysctl net.ipv4.conf.all.secure_redirects -> r:^net\.ipv4\.conf\.all\.secure_redirects\s*=\s*0$'
@@ -1124,7 +1652,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1132,8 +1660,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:sysctl net.ipv4.conf.all.log_martians -> r:^net\.ipv4\.conf\.all\.log_martians\s*=\s*1$'
@@ -1151,7 +1691,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1159,8 +1699,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:sysctl net.ipv4.icmp_ignore_bogus_error_responses -> r:^net\.ipv4\.icmp_ignore_bogus_error_responses\s*=\s*1$'
@@ -1176,7 +1728,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1184,8 +1736,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:sysctl net.ipv4.icmp_ignore_bogus_error_responses -> r:^net\.ipv4\.icmp_ignore_bogus_error_responses\s*=\s*1$'
@@ -1201,7 +1765,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1209,8 +1773,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:sysctl net.ipv4.conf.all.rp_filter -> r:^net\.ipv4\.conf\.all\.rp_filter\s*=\s*1$'
@@ -1228,7 +1804,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1236,8 +1812,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'c:grep -Rh net\.ipv4\.tcp_syncookies /etc/sysctl.conf /etc/sysctl.d -> r:^net\.ipv4\.tcp_syncookies\s*=\s*1$'
@@ -1259,7 +1847,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1267,8 +1855,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'f:$sshd_file -> !r:^\s*\t*# && r:Protocol\s*\t*2$'
@@ -1283,7 +1883,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1291,8 +1891,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'f:$sshd_file -> !r:^\s*\t*# && r:LogLevel\s*\t*INFO'
@@ -1307,7 +1919,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1315,8 +1927,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'f:$sshd_file -> !r:^\s*\t*# && n:^MaxAuthTries\s*\t*(\d+) compare <= 4'
@@ -1331,7 +1955,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1339,8 +1963,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'f:$sshd_file -> !r:^\s*\t*# && r:IgnoreRhosts\s*\t*yes'
@@ -1355,7 +1991,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1363,8 +1999,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'f:$sshd_file -> !r:^\s*\t*# && r:HostbasedAuthentication\s*\t*no'
@@ -1379,7 +2027,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1387,8 +2035,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'f:$sshd_file -> !r:^\s*\t*# && r:PermitRootLogin\s*\t*no'
@@ -1403,7 +2063,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1411,8 +2071,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: all
     rules:
       - 'f:$sshd_file -> !r:^\s*\t*# && r:PermitEmptyPasswords\s*\t*no'
@@ -1433,7 +2105,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1441,8 +2113,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - 'f:/etc/passwd -> !r:^\s*\t*# && !r:^\s*\t*root: && r:^[\w@-]+:[\w@-]+:0:'
@@ -1456,7 +2140,7 @@ checks:
       cmmc: ["CM.L2-3.4.1", "CA.L2-3.12.4"]
       fedramp: ["CM-8"]
       gdpr: ["IV_30.1.a", "IV_30.1.b", "IV_30.1.c", "IV_30.1.d", "IV_30.1.e", "IV_30.1.f", "IV_30.1.g", "IV_30.2.a", "IV_30.2.b", "IV_30.2.c", "IV_30.2.d", "IV_30.3", "IV_30.4", "IV_30.5", "IV_32.1.a", "IV_32.1.b", "IV_32.1.c", "IV_32.1.d", "IV_32.2", "IV_32.3", "IV_32.4"]
-      hipaa: ["164.308(a)(4)", "164.312(a)(1)"]
+      hipaa: ["164.308(a)(4)", "164.312(a)(1)", "164.308(a)(8)"]
       iso_27001: ["A.8.1.1", "A.8.1.2"]
       nis2: ["21.2.j", "21.2.a"]
       nist_800_171: ["3.4.1", "3.12.4"]
@@ -1464,8 +2148,20 @@ checks:
       pci_dss: ["2.4", "9.1", "9.2", "9.3", "11.1", "9.5", "11.2", "12.5"]
       tsc: ["CC6.1", "CC3.2", "CC5.1", "CC5.2", "CC5.3", "CC6.2", "CC6.3", "CC6.4", "CC6.5", "CC6.6", "CC6.7", "CC6.8"]
     mitre:
-      tactic: ["TA0007"]
-      technique: ["T1595", "T1046", "T1087"]
+      tactic:
+        id:
+          - "TA0007"
+        name:
+          - "Discovery"
+      technique:
+        id:
+          - "T1595"
+          - "T1046"
+          - "T1087"
+        name:
+          - "Active Scanning"
+          - "Network Service Discovery"
+          - "Account Discovery"
     condition: none
     rules:
       - 'f:/etc/shadow -> r:^[\w@-]+::'

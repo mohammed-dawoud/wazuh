@@ -26,7 +26,7 @@ from wazuh.core.utils import get_utc_now
 from api import configuration
 from api.alogging import custom_logging
 from api.authentication import generate_keypair, JWT_ALGORITHM
-from api.api_exception import BlockedIPException, MaxRequestsException, ExpectFailedException
+from api.api_exception import BlockedIPException, ExpectFailedException, MaxRequestsException, PayloadTooLargeException
 from api.controllers.util import build_recursion_error_response
 
 # Variable used to specify an unknown user
@@ -38,6 +38,9 @@ LOGIN_ENDPOINT = '/security/user/authenticate'
 
 # Authentication context hash key
 HASH_AUTH_CONTEXT_KEY = 'hash_auth_context'
+
+# Allowed upper bound for auth_context payload
+AUTH_CONTEXT_MAX_PAYLOAD_SIZE = 8 * 1024
 
 # API secure headers
 server = Server().set("Wazuh")
@@ -121,7 +124,11 @@ async def access_log(request: ConnexionRequest, response: Response, prev_time: t
 
 
 async def check_blocked_ip(request: Request):
-    """Blocks/unblocks the IPs that are requesting an API token.
+    """Blocks/unblocks the IPs that are requesting an API token, counting the attempt.
+
+    The attempt is counted in the same locked section that checks the block, before the
+    request is dispatched to authentication, so concurrent requests observe each other's
+    in-flight attempts instead of only already-recorded failures.
 
     Parameters
     ----------
@@ -134,6 +141,7 @@ async def check_blocked_ip(request: Request):
     global ip_block, ip_stats
     access_conf = configuration.api_conf['access']
     block_time = access_conf['block_time']
+    max_login_attempts = access_conf['max_login_attempts']
     host = request.client.host
 
     async with ip_lock:
@@ -151,6 +159,40 @@ async def check_blocked_ip(request: Request):
                 detail="Limit of login attempts reached. The current IP has been blocked due "
                        "to a high number of login attempts"
             )
+
+        if host not in ip_stats:
+            ip_stats[host] = {'attempts': 1}
+        else:
+            ip_stats[host]['attempts'] += 1
+        ip_stats[host]['timestamp'] = get_utc_now().timestamp()
+
+        if ip_stats[host]['attempts'] >= max_login_attempts:
+            ip_block.add(host)
+
+
+async def settle_login_attempt(request: Request):
+    """Release the attempt reserved by `check_blocked_ip` for a successful login.
+
+    Only failed login attempts should count towards `max_login_attempts`, so a
+    successful authentication releases the attempt that was counted at the gate
+    before credential validation ran.
+
+    Parameters
+    ----------
+    request : Request
+        HTTP request.
+    """
+    global ip_block, ip_stats
+    max_login_attempts = configuration.api_conf['access']['max_login_attempts']
+    host = request.client.host
+
+    async with ip_lock:
+        if host not in ip_stats:
+            return
+
+        ip_stats[host]['attempts'] -= 1
+        if ip_stats[host]['attempts'] < max_login_attempts:
+            ip_block.discard(host)
 
 
 def check_rate_limit(
@@ -214,6 +256,21 @@ class CheckRateLimitsMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
 
+class CheckAuthContextSizeMiddleware(BaseHTTPMiddleware):
+    """Reject run_as requests whose body exceeds AUTH_CONTEXT_MAX_PAYLOAD_SIZE."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if request.url.path == RUN_AS_LOGIN_ENDPOINT and request.method == "POST":
+            body = await request.body()
+            if len(body) > AUTH_CONTEXT_MAX_PAYLOAD_SIZE:
+                raise PayloadTooLargeException(
+                    title="Request Entity Too Large",
+                    detail=f"Auth context payload exceeds the maximum allowed size of "
+                           f"{AUTH_CONTEXT_MAX_PAYLOAD_SIZE} bytes.",
+                )
+        return await call_next(request)
+
+
 class CheckBlockedIP(BaseHTTPMiddleware):
     """Rate Limits Middleware."""
 
@@ -246,9 +303,12 @@ class WazuhAccessLoggerMiddleware(BaseHTTPMiddleware):
         prev_time = time.time()
 
         body = await request.body()
-        if body:
+
+        # Don't allow heavy bodies when trying to authenticate. Necessary because this middleware is executed before
+        # CheckAuthContextSizeMiddleware can be executed
+        if body and (request.url.path != RUN_AS_LOGIN_ENDPOINT or len(body) <= AUTH_CONTEXT_MAX_PAYLOAD_SIZE):
             try:
-                # Load the request body to the _json field before calling the controller so it's cached before the stream 
+                # Load the request body to the _json field before calling the controller so it's cached before the stream
                 # is consumed. If there's a json error we skip it so it's handled later.
                 # Related to https://github.com/wazuh/wazuh/issues/24060.
                 _ = await request.json()
@@ -291,28 +351,28 @@ class CheckExpectHeaderMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: ConnexionRequest, call_next: RequestResponseEndpoint) -> Response:
         """Check for specific request headers and generate error 417 if conditions are not met.
-                
+
         Parameters
         ----------
             request : Request
             HTTP Request received.
         call_next :  RequestResponseEndpoint
             Endpoint callable to be executed.
-        
+
         Returns
         -------
             Returned response.
         """
-        
+
         if 'Expect' not in request.headers:
             response = await call_next(request)
             return response
         else:
             expect_value = request.headers["Expect"].lower()
-            
+
             if expect_value != '100-continue':
                 raise ExpectFailedException(status=417, title="Expectation failed", detail="Unknown Expect")
-            
+
             if 'Content-Length' in request.headers:
                 content_length = int(request.headers["Content-Length"])
                 max_upload_size = configuration.api_conf["max_upload_size"]
@@ -320,6 +380,6 @@ class CheckExpectHeaderMiddleware(BaseHTTPMiddleware):
                     raise ExpectFailedException(status=417, title="Expectation failed",
                                                 detail=f"Maximum content size limit ({max_upload_size}) exceeded "
                                                        f"({content_length} bytes read)")
-                
+
         response = await call_next(request)
         return response
